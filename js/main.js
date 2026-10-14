@@ -578,6 +578,18 @@ if (params.has('debug')) {
 
 goToTitle();
 window.__gameReady = true; // 読み込めたことを index.html に知らせる（読み込めないときの案内を出さない）
+
+// ---- ホーム画面のアプリ（PWA）：一度開いたら通信なしでも遊べるようにする（sw.js） ----
+if ('serviceWorker' in navigator) {
+  const hadWorker = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js').catch(() => {
+    // 登録できなくても、通信があればふつうに遊べる
+  });
+  // 新しい版に切り替わったら、試合中でなければ読み込み直して新しい版にする（試合中なら次に開いたとき）
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadWorker && app.mode !== 'match') location.reload();
+  });
+}
 let last = performance.now();
 
 function loop(now) {
