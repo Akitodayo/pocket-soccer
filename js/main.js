@@ -36,16 +36,16 @@ const { renderer, scene, camera, lowerResolution } = createScene(container);
 createField(scene);
 const ball = createBall(scene);
 
-// ユニフォーム（架空のチーム。色だけで区別する）。キーパーは同じチームの濃い色に手袋
+// チームの色（架空のチーム。色だけで区別する）。キーパーは同じチームの濃い色に、大きな白い手袋
 const KITS = {
   blue: {
-    player: { shirt: 0x2f6fe0, shorts: 0xf2f2f2, socks: 0x2f6fe0 },
-    keeper: { shirt: 0x1d3f8a, shorts: 0x1d3f8a, socks: 0x1d3f8a, gloves: 0xf4f4f4 },
+    player: { body: 0x3d7ff0, hands: 0xffffff },
+    keeper: { body: 0x1f418f, hands: 0xf4f4f4 },
     numbers: [10, 7, 9],
   },
   red: {
-    player: { shirt: 0xd8403a, shorts: 0x262626, socks: 0xd8403a },
-    keeper: { shirt: 0x8c201c, shorts: 0x262626, socks: 0x8c201c, gloves: 0xf4f4f4 },
+    player: { body: 0xe24b44, hands: 0xffffff },
+    keeper: { body: 0x8c201c, hands: 0xf4f4f4 },
     numbers: [9, 11, 8],
   },
 };
@@ -119,7 +119,6 @@ const match = {
   score: { blue: 0, red: 0 },
   phaseTimer: 0,
   goalSide: 0,
-  cpuWait: 0,
 };
 
 // ---- 画面の切り替え ----
@@ -197,8 +196,8 @@ function kickoff(kickingTeam) {
   controlled = blueTeam.players[0];
   controlled.setControlled(true);
   match.phase = 'playing';
-  // 相手（青）のキックオフのときは、CPU は少し待ってから動き出す
-  match.cpuWait = kickingTeam === 'blue' ? CPU.kickoffWait : 0;
+  // 蹴り出すまで、相手はボールを奪えない
+  ball.kickoffTeam = (kickingTeam === 'blue' ? blueTeam : redTeam).attackDir;
 }
 
 function showBanner(text, small = false) {
@@ -296,8 +295,7 @@ function step(dt) {
       if (mate) controlled.passTo(ball, mate);
     }
     updateTeam(dt, blueTeam, ball, redTeam, { controlled });
-    match.cpuWait = Math.max(0, match.cpuWait - dt);
-    updateTeam(dt, redTeam, ball, blueTeam, { wait: match.cpuWait > 0 });
+    updateTeam(dt, redTeam, ball, blueTeam);
     separatePlayers(players);
 
     ball.update(dt);

@@ -11,7 +11,7 @@ export const PLAYER = {
   radius: 0.4,          // 体の太さ（当たり判定にも使う）
   controlRange: 1.0,    // この距離までボールに近づくと自動でキープする
   dribbleDistance: 0.7,  // キープ中のボールと体の距離
-  dribbleSide: 0.35,    // キープ中のボールを右足側にずらす量（後ろのカメラから隠れないように）
+  dribbleSide: 0.45,    // キープ中のボールを右足側にずらす量（後ろのカメラから隠れないように）
   kickSpeed: 24,        // シュートの速さ（一定）
   kickLift: 4,          // シュートの浮き上がり
   kickCooldown: 0.4,    // 蹴った直後にボールを拾わない時間（秒）
@@ -34,7 +34,7 @@ export class Player {
   // speed: 走る速さ。bounds: 動ける範囲 { minX, maxX, minZ, maxZ }（省略するとピッチ全体）
   // keeper: キーパーなら true（キーパーが持ったボールは奪えない）
   // marker: true なら「操作中」の印（足元の黄色い輪と頭の上の三角）を付けられる
-  // kit: ユニフォームの色 { shirt, shorts, socks, gloves }、number: 背番号、look: 肌と髪の色の番号
+  // kit: 色 { body, hands }、number: 背番号、look: 顔つきの番号
   constructor(scene, { kit, number = 0, look = 0, x, z, attackDir, marker = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
     this.home = new THREE.Vector3(x, 0, z);
     this.attackDir = attackDir;
@@ -48,6 +48,7 @@ export class Player {
     this.model = createPlayerModel(kit, number, look, keeper);
     this.mesh = this.model.root;
     this.runPhase = Math.random() * Math.PI * 2;
+    this.idleTime = Math.random() * 10;
     this.kickAnim = 0;
     this.marker = marker ? createMarker(this.mesh) : null;
     this.position = this.mesh.position;
@@ -101,8 +102,9 @@ export class Player {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     this.runPhase += (speed / MODEL.stride) * Math.PI * 2 * dt;
     this.kickAnim = Math.max(0, this.kickAnim - dt);
+    this.idleTime += dt;
     const kick = this.kickAnim > 0 ? 1 - this.kickAnim / MODEL.kickTime : -1;
-    poseModel(this.model, this.runPhase, Math.min(1, speed / 6), kick);
+    poseModel(this.model, this.runPhase, Math.min(1, speed / 6), kick, this.idleTime);
   }
 
   clampToBounds() {
@@ -172,7 +174,8 @@ export class Player {
   // range: ボールに届く距離、maxHeight: 届く高さ、allowed: false ならボールに触れない（キーパーがシュートを止めそこねたとき）
   keepBall(ball, dt, { range = PLAYER.controlRange, maxHeight = 1, allowed = true } = {}) {
     const dist = this.distanceTo(ball.position);
-    const able = allowed && this.kickTimer <= 0 && this.lockTimer <= 0 && ball.position.y < maxHeight;
+    const able = allowed && this.kickTimer <= 0 && this.lockTimer <= 0 && ball.position.y < maxHeight
+      && !ball.protectedFrom(this);
 
     if (this.hasBall(ball)) {
       if (!able || dist > range * 1.6) ball.owner = null;
@@ -235,20 +238,14 @@ export function separatePlayers(players) {
   }
 }
 
-// ---- 人型の3Dモデル ----
-// 足の裏が y=0。体の正面は +z、右手側は -x
+// ---- キャラクターの3Dモデル ----
+// 頭と体がひとつながりの、丸くてやわらかい形。足の裏が y=0、体の正面は +z、右手側は -x
 
 const MODEL = {
-  hipHeight: 0.9,     // 股関節の高さ
-  thighLength: 0.42,  // 太ももの長さ
-  shinLength: 0.42,   // すねの長さ
-  stride: 3.2,        // 脚の動きが1周するあいだに進む距離（走りの歩幅の目安）
-  kickTime: 0.28,     // 蹴る動きの長さ（秒）
+  hipHeight: 0.3,  // 脚の付け根の高さ
+  stride: 2.6,     // 脚の動きが1周するあいだに進む距離（走りの歩幅の目安）
+  kickTime: 0.28,  // 蹴る動きの長さ（秒）
 };
-
-// ユニフォームの色と、選手ごとの肌・髪の色の候補
-const SKINS = [0xf1c8a0, 0xe0ac7e, 0xc68e5e, 0xf5d3b3];
-const HAIRS = [0x1d1a17, 0x3b2a1e, 0x5a3b22, 0x2a2420];
 
 const materials = new Map();
 function material(color) {
@@ -258,23 +255,20 @@ function material(color) {
 
 // 何度も使う形は1つだけ作って使い回す（動作を軽く保つため）
 const GEOMETRY = {
-  shorts: new THREE.CylinderGeometry(0.095, 0.085, 0.2, 10),
-  thigh: new THREE.CylinderGeometry(0.07, 0.06, 0.26, 10),
-  knee: new THREE.CylinderGeometry(0.058, 0.055, 0.12, 10),
-  sock: new THREE.CylinderGeometry(0.055, 0.045, 0.3, 10),
-  shoe: new THREE.BoxGeometry(0.11, 0.08, 0.25),
-  hips: new THREE.BoxGeometry(0.3, 0.16, 0.2),
-  shirt: new THREE.CylinderGeometry(0.21, 0.17, 0.52, 14),
-  neck: new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10),
-  head: new THREE.SphereGeometry(0.115, 16, 12),
-  hair: new THREE.SphereGeometry(0.122, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
-  sleeve: new THREE.CylinderGeometry(0.06, 0.055, 0.15, 10),
-  upperArm: new THREE.CylinderGeometry(0.047, 0.043, 0.15, 8),
-  forearm: new THREE.CylinderGeometry(0.042, 0.036, 0.25, 8),
-  hand: new THREE.SphereGeometry(0.048, 10, 8),
-  glove: new THREE.SphereGeometry(0.068, 10, 8),
-  number: new THREE.PlaneGeometry(0.2, 0.2),
+  trunk: new THREE.CapsuleGeometry(0.33, 0.6, 8, 20),
+  leg: new THREE.CapsuleGeometry(0.12, 0.14, 6, 12),
+  arm: new THREE.CapsuleGeometry(0.085, 0.24, 6, 10),
+  hand: new THREE.SphereGeometry(0.1, 12, 10),
+  glove: new THREE.SphereGeometry(0.14, 12, 10),
+  eye: new THREE.SphereGeometry(0.075, 14, 10),
+  pupil: new THREE.SphereGeometry(0.04, 10, 8),
+  shine: new THREE.SphereGeometry(0.014, 6, 4),
+  smile: new THREE.TorusGeometry(0.06, 0.013, 6, 16, Math.PI),
+  cheek: new THREE.CircleGeometry(0.045, 14),
+  number: new THREE.PlaneGeometry(0.26, 0.26),
 };
+
+const CHEEK_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xff8a9a, transparent: true, opacity: 0.55 });
 
 function part(geometry, color, x, y, z, shadow = false) {
   const mesh = new THREE.Mesh(geometry, material(color));
@@ -292,7 +286,7 @@ function numberTexture(number) {
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 52px Arial, sans-serif';
+    ctx.font = 'bold 50px Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(number), 32, 35);
@@ -303,134 +297,115 @@ function numberTexture(number) {
   return numberTextures.get(number);
 }
 
-// 人型の選手を作る。kit はユニフォームの色 { shirt, shorts, socks, gloves }、look は肌と髪の番号
+// キャラクターを作る。kit は色 { body, hands }、look は顔つきの番号（目の大きさが少し変わる）
 function createPlayerModel(kit, number, look, keeper) {
-  const skin = SKINS[look % SKINS.length];
-  const hair = HAIRS[(look * 3 + 1) % HAIRS.length];
   const root = new THREE.Group();
 
-  // 上下に揺れる部分（腰から上と脚）
+  // 腰から上（上下に弾む・左右に揺れる）
   const body = new THREE.Group();
+  body.position.y = MODEL.hipHeight;
   root.add(body);
 
-  const hips = new THREE.Group();
-  hips.position.y = MODEL.hipHeight;
-  body.add(hips);
-  hips.add(part(GEOMETRY.hips, kit.shorts, 0, 0.02, 0, true));
+  // 伸び縮みする胴。足元を中心に縮むよう、メッシュを上にずらして入れる
+  const trunk = new THREE.Group();
+  body.add(trunk);
+  trunk.add(part(GEOMETRY.trunk, kit.body, 0, 0.6, 0, true));
 
-  // 脚：股関節 → 太もも → ひざ → すね → スパイク。side は 1 が左、-1 が右
-  const legs = {};
+  // 顔：大きな目（白目・黒目・光）、にっこり口、ほっぺ
+  const eyeScale = 1 + (look % 3) * 0.08;
   for (const side of [1, -1]) {
-    const thigh = new THREE.Group();
-    thigh.position.set(side * 0.1, -0.04, 0);
-    hips.add(thigh);
-    thigh.add(part(GEOMETRY.shorts, kit.shorts, 0, -0.08, 0, true));
-    thigh.add(part(GEOMETRY.thigh, skin, 0, -0.27, 0, true));
-
-    const shin = new THREE.Group();
-    shin.position.y = -MODEL.thighLength;
-    thigh.add(shin);
-    shin.add(part(GEOMETRY.knee, skin, 0, -0.05, 0, true));
-    shin.add(part(GEOMETRY.sock, kit.socks, 0, -0.24, 0, true));
-    shin.add(part(GEOMETRY.shoe, 0x1b1b1b, 0, -0.4, 0.05, true));
-    legs[side > 0 ? 'left' : 'right'] = { thigh, shin };
+    const eye = part(GEOMETRY.eye, 0xffffff, side * 0.115, 1.0, 0.27);
+    eye.scale.setScalar(eyeScale);
+    trunk.add(eye);
+    trunk.add(part(GEOMETRY.pupil, 0x1d1d24, side * 0.11, 1.0, 0.335));
+    trunk.add(part(GEOMETRY.shine, 0xffffff, side * 0.1 + 0.012, 1.018, 0.372));
+    const cheek = new THREE.Mesh(GEOMETRY.cheek, CHEEK_MATERIAL);
+    cheek.position.set(side * 0.2, 0.88, 0.255);
+    cheek.rotation.y = side * 0.62;
+    trunk.add(cheek);
   }
-
-  // 胴：腰の上で前に傾けられるようにする
-  const torso = new THREE.Group();
-  torso.position.y = MODEL.hipHeight + 0.06;
-  body.add(torso);
-  const shirt = part(GEOMETRY.shirt, kit.shirt, 0, 0.26, 0, true);
-  shirt.scale.z = 0.62;
-  torso.add(shirt);
-  torso.add(part(GEOMETRY.neck, skin, 0, 0.56, 0));
-
-  const head = new THREE.Group();
-  head.position.y = 0.7;
-  torso.add(head);
-  const face = part(GEOMETRY.head, skin, 0, 0, 0, true);
-  face.scale.y = 1.12;
-  head.add(face);
-  const hairMesh = part(GEOMETRY.hair, hair, 0, 0.025, -0.012);
-  hairMesh.scale.y = 1.05;
-  head.add(hairMesh);
+  const smile = part(GEOMETRY.smile, 0x5a2a2a, 0, 0.9, 0.315);
+  smile.rotation.z = Math.PI;
+  trunk.add(smile);
 
   // 背番号
   const back = new THREE.Mesh(
     GEOMETRY.number,
     new THREE.MeshBasicMaterial({ map: numberTexture(number), transparent: true })
   );
-  back.position.set(0, 0.3, -0.125);
+  back.position.set(0, 0.62, -0.335);
   back.rotation.y = Math.PI;
-  torso.add(back);
+  trunk.add(back);
 
-  // 腕：肩 → 上腕 → ひじ → 前腕 → 手（キーパーは手袋）
+  // 腕：肩から垂れる丸い腕と、丸い手（キーパーは大きな手袋）
   const arms = {};
   for (const side of [1, -1]) {
     const shoulder = new THREE.Group();
-    shoulder.position.set(side * 0.235, 0.47, 0);
-    torso.add(shoulder);
-    shoulder.add(part(GEOMETRY.sleeve, kit.shirt, 0, -0.06, 0, true));
-    shoulder.add(part(GEOMETRY.upperArm, skin, 0, -0.2, 0, true));
-
-    const elbow = new THREE.Group();
-    elbow.position.y = -0.27;
-    shoulder.add(elbow);
-    elbow.add(part(GEOMETRY.forearm, skin, 0, -0.12, 0, true));
-    elbow.add(part(keeper ? GEOMETRY.glove : GEOMETRY.hand, keeper ? kit.gloves : skin, 0, -0.27, 0));
-    arms[side > 0 ? 'left' : 'right'] = { shoulder, elbow };
+    shoulder.position.set(side * 0.3, 0.72, 0);
+    trunk.add(shoulder);
+    shoulder.add(part(GEOMETRY.arm, kit.body, 0, -0.17, 0, true));
+    shoulder.add(part(keeper ? GEOMETRY.glove : GEOMETRY.hand, kit.hands, 0, -0.36, 0, true));
+    arms[side > 0 ? 'left' : 'right'] = shoulder;
   }
 
-  return { root, body, torso, legs, arms, keeper };
+  // 脚：胴の下から出る、短い丸い脚
+  const legs = {};
+  for (const side of [1, -1]) {
+    const leg = new THREE.Group();
+    leg.position.set(side * 0.15, 0.08, 0);
+    body.add(leg);
+    leg.add(part(GEOMETRY.leg, kit.body, 0, -0.17, 0.02, true));
+    legs[side > 0 ? 'left' : 'right'] = leg;
+  }
+
+  return { root, body, trunk, legs, arms, keeper };
 }
 
-// 走る・蹴る・構える動きを付ける。phase は走りの進み具合、amount は走りの強さ（0〜1）、kick は蹴る動きの進み具合（0〜1、蹴っていなければ -1）
-function poseModel(model, phase, amount, kick) {
-  const { body, torso, legs, arms } = model;
+// ふにゃふにゃした動きを付ける。phase は走りの進み具合、amount は走りの強さ（0〜1）、
+// kick は蹴る動きの進み具合（0〜1、蹴っていなければ -1）、time は呼吸の揺れに使う時間
+function poseModel(model, phase, amount, kick, time) {
+  const { body, trunk, legs, arms } = model;
   const s = Math.sin(phase);
-  const c = Math.cos(phase);
+  const idle = 1 - amount;
 
-  // 脚：左右交互に前後へ振り、後ろへ振るときにひざを曲げる（正の回転で後ろ、負の回転で前）
-  legs.left.thigh.rotation.x = -s * 0.75 * amount;
-  legs.right.thigh.rotation.x = s * 0.75 * amount;
-  legs.left.shin.rotation.x = (0.15 + 1.0 * Math.max(0, -c)) * amount;
-  legs.right.shin.rotation.x = (0.15 + 1.0 * Math.max(0, c)) * amount;
+  // 脚：左右交互に前後へ振る（正の回転で後ろ、負の回転で前）
+  legs.left.rotation.x = -s * 0.9 * amount;
+  legs.right.rotation.x = s * 0.9 * amount;
 
-  // 腕：脚と反対に振り、ひじを曲げる
-  arms.left.shoulder.rotation.set(s * 0.6 * amount, 0, 0.08);
-  arms.right.shoulder.rotation.set(-s * 0.6 * amount, 0, -0.08);
-  arms.left.elbow.rotation.x = -(0.35 + 0.9 * amount);
-  arms.right.elbow.rotation.x = -(0.35 + 0.9 * amount);
+  // 腕：脚と反対に振り、少し遅れてふにゃっと外へ揺れる
+  const flop = Math.sin(phase * 2 + 1) * 0.15 * amount;
+  arms.left.rotation.set(s * 0.9 * amount, 0, 0.25 + 0.3 * amount + flop + Math.sin(time * 2) * 0.04 * idle);
+  arms.right.rotation.set(-s * 0.9 * amount, 0, -(0.25 + 0.3 * amount + flop + Math.sin(time * 2) * 0.04 * idle));
 
-  // 体：走るほど前に傾き、一歩ごとに上下に揺れる
-  torso.rotation.x = 0.06 + 0.16 * amount;
-  body.position.y = Math.abs(s) * 0.05 * amount;
+  // 体：前に傾き、左右によちよち揺れ、一歩ごとに弾む
+  body.rotation.set(0.16 * amount, 0, s * 0.09 * amount);
+  body.position.y = MODEL.hipHeight + Math.abs(s) * 0.07 * amount;
 
-  // キーパーは、止まっているときは腰を落として腕を前に構える
+  // ぷにぷに伸び縮み（止まっているときは、ゆっくり呼吸するように）
+  let squash = 1 + Math.sin(phase * 2) * 0.07 * amount + Math.sin(time * 3) * 0.025 * idle;
+
+  // キーパーは、止まっているときは少しかがんで両腕を広げて構える
   if (model.keeper) {
-    const ready = 1 - amount;
-    for (const side of ['left', 'right']) {
-      legs[side].thigh.rotation.x -= 0.35 * ready;
-      legs[side].shin.rotation.x += 0.7 * ready;
-      arms[side].shoulder.rotation.x -= 0.7 * ready;
-    }
-    arms.left.shoulder.rotation.z += 0.35 * ready;
-    arms.right.shoulder.rotation.z -= 0.35 * ready;
-    body.position.y -= 0.08 * ready;
+    arms.left.rotation.z += 0.9 * idle;
+    arms.right.rotation.z -= 0.9 * idle;
+    arms.left.rotation.x -= 0.4 * idle;
+    arms.right.rotation.x -= 0.4 * idle;
+    squash -= 0.06 * idle;
   }
 
-  // 蹴る：右脚を後ろへ引いてから前へ振り抜き、左腕でバランスを取る
+  // 蹴る：右脚を後ろへ引いてから大きく振り抜き、体をのけぞらせて両腕を上げる
   if (kick >= 0) {
     const back = 0.35;
-    const swing = kick < back ? 0.7 * (kick / back) : 0.7 - 2.0 * ((kick - back) / (1 - back));
-    legs.right.thigh.rotation.x = swing;
-    legs.right.shin.rotation.x = kick < back ? 1.3 * (kick / back) : 1.3 * (1 - (kick - back) / (1 - back));
-    legs.left.thigh.rotation.x = 0.1;
-    legs.left.shin.rotation.x = 0.2;
-    arms.left.shoulder.rotation.set(-0.5, 0, 0.7);
-    arms.right.shoulder.rotation.set(0.4, 0, -0.4);
-    torso.rotation.x = 0.05 - 0.15 * Math.sin(kick * Math.PI);
+    legs.right.rotation.x = kick < back ? 0.8 * (kick / back) : 0.8 - 2.2 * ((kick - back) / (1 - back));
+    legs.left.rotation.x = 0.15;
+    const lift = Math.sin(kick * Math.PI);
+    arms.left.rotation.set(-0.3, 0, 0.6 + 0.8 * lift);
+    arms.right.rotation.set(-0.3, 0, -(0.6 + 0.8 * lift));
+    body.rotation.x = -0.22 * lift;
+    squash = 1 + 0.08 * lift;
   }
+
+  trunk.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
 }
 
 // 「操作中」の印：足元の黄色い輪と、頭の上の下向きの三角（遠くからでもわかるように）
@@ -445,7 +420,7 @@ function createMarker(parent) {
 
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 4), material);
   arrow.rotation.x = Math.PI;
-  arrow.position.y = 2.1;
+  arrow.position.y = 1.95;
   group.add(arrow);
 
   group.visible = false;

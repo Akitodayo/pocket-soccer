@@ -8,7 +8,7 @@ export const CPU = {
   speedRate: 0.8,         // 相手のフィールド選手の速さ（あなたの選手を1としたとき）
   shootDistance: 13,      // 相手ゴールまでこの距離に入ったらシュートする
   shootDelay: 0.6,        // ボールを持ってからシュートできるまでの時間（秒）
-  kickoffWait: 0.5,       // 相手のキックオフのとき、動き出すまで待つ時間（秒）
+  kickoffPassDelay: 0.6,  // 自分のチームのキックオフのとき、味方へパスで蹴り出すまでの時間（秒）
   chaseLead: 0.25,        // 転がるボールを追うとき、何秒先の位置を目指すか
   chaserMargin: 1.5,      // ボールを追う役を交代するのは、ほかの選手がこの距離以上近くなったとき
   passDelay: 0.5,         // ボールを持ってからパスできるまでの時間（秒）
@@ -118,13 +118,12 @@ function pickChaser(team, ball) {
 }
 
 // チームの自動で動く選手（controlled 以外）とキーパーを動かす。
-// controlled がいるチーム（あなたのチーム）は、ほかの選手が全員サポート役になる。wait が true ならフィールド選手は止まって待つ
-export function updateTeam(dt, team, ball, opponents, { controlled = null, wait = false } = {}) {
+// controlled がいるチーム（あなたのチーム）は、ほかの選手が全員サポート役になる
+export function updateTeam(dt, team, ball, opponents, { controlled = null } = {}) {
   const chaser = controlled ? null : pickChaser(team, ball);
   for (const p of team.players) {
     if (p === controlled) continue;
-    if (wait) p.update(dt, STOP);
-    else if (p === chaser) updateAttacker(dt, p, ball, team, opponents);
+    if (p === chaser) updateAttacker(dt, p, ball, team, opponents);
     else updateSupport(dt, p, ball, team, opponents);
   }
   updateKeeper(dt, team.keeper, ball, team, opponents);
@@ -143,7 +142,11 @@ function updateAttacker(dt, me, ball, team, opponents) {
     const nearestOpponent = nearestTo(opponents.players, me.position);
     const pressured = nearestOpponent && me.distanceTo(nearestOpponent.position) < CPU.pressureRange;
 
-    if (toGoal < CPU.shootDistance && me.holdTime > CPU.shootDelay) {
+    if (ball.kickoffTeam === me.attackDir) {
+      // キックオフ：少し待ってから味方へパスで蹴り出す
+      const mate = team.players.find((p) => p !== me);
+      if (mate && me.holdTime > CPU.kickoffPassDelay) me.passTo(ball, mate);
+    } else if (toGoal < CPU.shootDistance && me.holdTime > CPU.shootDelay) {
       me.tryKick(ball, aimAwayFromKeeper(opponents.keeper));
     } else if (pressured && me.holdTime > CPU.passDelay) {
       const mate = findOpenMate(me, team, opponents);
@@ -161,7 +164,12 @@ function updateAttacker(dt, me, ball, team, opponents) {
     target = { x: goalX, z };
   } else {
     me.holdTime = 0;
-    if (ball.owner && ball.owner.keeper) {
+    if (ball.protectedFrom(me)) {
+      // 相手のキックオフ：蹴り出されるまでセンターサークルの外で待つ
+      const len = Math.hypot(me.position.x, me.position.z) || 1;
+      const r = FIELD.centerCircleRadius + 0.5;
+      target = { x: (me.position.x / len) * r, z: (me.position.z / len) * r };
+    } else if (ball.owner && ball.owner.keeper) {
       target = supportSpot(me, ball, team, opponents);
     } else {
       // ボールの少し先を目指し、攻める向きの反対側から回り込む

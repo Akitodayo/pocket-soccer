@@ -39,6 +39,7 @@ class Ball {
     this.shotFromX = 0;   // 最後に蹴った位置（キーパーが止める確率に使う）
     this.passTarget = null; // パスの受け手（受け手はボールへ走り、青チームなら操作もその選手に切り替わる）
     this.passTimer = 0;     // パスを出してからの時間（秒）
+    this.kickoffTeam = null; // キックオフしたチームの向き。蹴り出すまで（またはセンターサークルを出るまで）相手は奪えない
     this.reset();
   }
 
@@ -50,6 +51,12 @@ class Ball {
     this.ownerTimer = 0;
     this.prevX = 0;
     this.passTarget = null;
+    this.kickoffTeam = null;
+  }
+
+  // キックオフの間、ほかのチームはこのボールに触れない
+  protectedFrom(player) {
+    return this.kickoffTeam !== null && player.attackDir !== this.kickoffTeam;
   }
 
   // 地面と平行な方向の速さ
@@ -83,6 +90,7 @@ class Ball {
     this.shotId += 1;
     this.shotFromX = this.position.x;
     this.passTarget = null;
+    this.kickoffTeam = null;
   }
 
   update(dt) {
@@ -91,6 +99,8 @@ class Ball {
     this.ownerTimer += dt;
     this.passTimer += dt;
     if (this.passTarget && this.passTimer > PASS_TIMEOUT) this.passTarget = null;
+    // 蹴り出さずにセンターサークルの外へ運んだら、キックオフの守りは終わり
+    if (this.kickoffTeam !== null && Math.hypot(p.x, p.z) > FIELD.centerCircleRadius) this.kickoffTeam = null;
     this.prevX = p.x; // 動く前の位置（ゴールの中にいたかの判定に使う）
 
     v.y -= BALL.gravity * dt;
