@@ -27,6 +27,7 @@ export function createField(scene) {
   group.add(createGround());
   group.add(createPitch());
   group.add(createLines());
+  group.add(createBoards());
   group.add(createGoal(-1));
   group.add(createGoal(1));
   scene.add(group);
@@ -122,6 +123,39 @@ function createLines() {
     addBox(lineX - side * FIELD.goalAreaDepth / 2, 0, FIELD.goalAreaDepth, FIELD.goalAreaWidth);
   }
 
+  return group;
+}
+
+// ピッチを囲む低い板。ボールはここで跳ね返る（ゴールの口だけ開いている）
+function createBoards() {
+  const group = new THREE.Group();
+  const material = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+  const height = 0.4;
+  const thick = 0.2;
+  const halfL = FIELD.length / 2;
+  const halfW = FIELD.width / 2;
+  const offset = FIELD.lineWidth / 2 + thick / 2;
+
+  function addBoard(x, z, sx, sz) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, height, sz), material);
+    mesh.position.set(x, height / 2, z);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  // 手前と奥のサイド
+  const sideLength = FIELD.length + (offset + thick / 2) * 2;
+  addBoard(0, -(halfW + offset), sideLength, thick);
+  addBoard(0, halfW + offset, sideLength, thick);
+
+  // 左右のゴールの両脇
+  const gapHalf = GOAL.width / 2 + GOAL.postRadius;
+  const endLength = halfW - gapHalf;
+  for (const side of [-1, 1]) {
+    for (const zSign of [-1, 1]) {
+      addBoard(side * (halfL + offset), zSign * (gapHalf + endLength / 2), thick, endLength);
+    }
+  }
   return group;
 }
 
