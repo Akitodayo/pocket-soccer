@@ -42,13 +42,15 @@ export const CPU = {
 const STOP = { x: 0, z: 0 };
 
 // キーパーを作る。attackDir はそのチームが攻める向き（守るゴールはその反対側）
-export function createKeeper(scene, { color, attackDir }) {
+export function createKeeper(scene, { kit, attackDir, look = 0 }) {
   const lineX = -attackDir * FIELD.length / 2;
   const nearX = lineX + attackDir * 0.6;
   const farX = lineX + attackDir * (FIELD.goalAreaDepth + 1.2);
   const halfZ = FIELD.goalAreaWidth / 2;
   return new Player(scene, {
-    color,
+    kit,
+    number: 1,
+    look,
     attackDir,
     keeper: true,
     x: lineX + attackDir * 1.0,

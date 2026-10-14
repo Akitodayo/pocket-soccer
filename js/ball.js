@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { FIELD, GOAL } from './field.js';
 
-export const BALL_RADIUS = 0.35;
+export const BALL_RADIUS = 0.28;
 
 // パスがこの時間（秒）たってもだれにも届かなければ、受け手を忘れる
 const PASS_TIMEOUT = 2.5;

@@ -36,20 +36,42 @@ const { renderer, scene, camera, lowerResolution } = createScene(container);
 createField(scene);
 const ball = createBall(scene);
 
+// ユニフォーム（架空のチーム。色だけで区別する）。キーパーは同じチームの濃い色に手袋
+const KITS = {
+  blue: {
+    player: { shirt: 0x2f6fe0, shorts: 0xf2f2f2, socks: 0x2f6fe0 },
+    keeper: { shirt: 0x1d3f8a, shorts: 0x1d3f8a, socks: 0x1d3f8a, gloves: 0xf4f4f4 },
+    numbers: [10, 7, 9],
+  },
+  red: {
+    player: { shirt: 0xd8403a, shorts: 0x262626, socks: 0xd8403a },
+    keeper: { shirt: 0x8c201c, shorts: 0x262626, socks: 0x8c201c, gloves: 0xf4f4f4 },
+    numbers: [9, 11, 8],
+  },
+};
+
 // チーム：フィールド選手は自分の陣地に左右へ並べる。options は選手ごとの設定（速さなど）
-function createTeam(attackDir, color, keeperColor, options) {
+function createTeam(attackDir, kits, lookOffset, options) {
   const players = [];
   for (let i = 0; i < FIELD_PLAYERS; i++) {
     const z = (i - (FIELD_PLAYERS - 1) / 2) * 6;
-    players.push(new Player(scene, { color, x: -attackDir * 6, z, attackDir, ...options }));
+    players.push(new Player(scene, {
+      kit: kits.player,
+      number: kits.numbers[i % kits.numbers.length],
+      look: lookOffset + i,
+      x: -attackDir * 6,
+      z,
+      attackDir,
+      ...options,
+    }));
   }
-  const keeper = createKeeper(scene, { color: keeperColor, attackDir });
+  const keeper = createKeeper(scene, { kit: kits.keeper, attackDir, look: lookOffset + FIELD_PLAYERS });
   return { attackDir, players, keeper, chaser: null };
 }
 
 // 自分のチーム（青）は右へ、相手（赤）は左へ攻める
-const blueTeam = createTeam(1, 0x2f6fe0, 0x1d3f8a, { marker: true });
-const redTeam = createTeam(-1, 0xd8403a, 0x8c201c, { speed: PLAYER.speed * CPU.speedRate });
+const blueTeam = createTeam(1, KITS.blue, 0, { marker: true });
+const redTeam = createTeam(-1, KITS.red, 2, { speed: PLAYER.speed * CPU.speedRate });
 const fieldPlayers = [...blueTeam.players, ...redTeam.players];
 const players = [...fieldPlayers, blueTeam.keeper, redTeam.keeper];
 
