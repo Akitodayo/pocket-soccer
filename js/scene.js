@@ -3,6 +3,27 @@ import * as THREE from 'three';
 
 export const ASPECT = 16 / 9;
 
+// カメラの調整用の数値
+const CAMERA = {
+  fov: 55,         // 映す範囲の広さ（角度）
+  back: 8,         // 選手からどれだけ後ろに置くか
+  height: 6.5,     // 地面からの高さ
+  lookAhead: 5,    // 選手のどれだけ前を見るか
+  lookHeight: 0.8, // 見る点の高さ
+  follow: 6,       // 追いかける素早さ
+};
+
+// カメラを選手の後ろに付ける。attackDir（1 なら右のゴール）の方向を向く
+// snap が true なら、なめらかに追わずにすぐその位置へ移す
+export function updateCamera(camera, target, attackDir, dt, snap = false) {
+  const goalX = target.x - attackDir * CAMERA.back;
+  const t = snap ? 1 : 1 - Math.exp(-CAMERA.follow * dt);
+  camera.position.x += (goalX - camera.position.x) * t;
+  camera.position.z += (target.z - camera.position.z) * t;
+  camera.position.y = CAMERA.height;
+  camera.lookAt(camera.position.x + attackDir * (CAMERA.back + CAMERA.lookAhead), CAMERA.lookHeight, camera.position.z);
+}
+
 export function createScene(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -15,10 +36,8 @@ export function createScene(container) {
   scene.background = new THREE.Color(0x9fd3f0);
   scene.fog = new THREE.Fog(0x9fd3f0, 60, 120);
 
-  // テレビ中継のように、手前のサイドライン側の斜め上から全体を映す
-  const camera = new THREE.PerspectiveCamera(40, ASPECT, 0.5, 200);
-  camera.position.set(0, 27, 37);
-  camera.lookAt(0, 0, 0.5);
+  // 選手の少し後ろから、相手ゴールの方向を映す（位置は updateCamera で毎コマ動かす）
+  const camera = new THREE.PerspectiveCamera(CAMERA.fov, ASPECT, 0.3, 200);
 
   // 空と地面の照り返しで全体を明るくする
   const hemi = new THREE.HemisphereLight(0xffffff, 0x4a7a3a, 0.9);

@@ -11,6 +11,7 @@ export const PLAYER = {
   radius: 0.4,          // 体の太さ（当たり判定にも使う）
   controlRange: 1.0,    // この距離までボールに近づくと自動でキープする
   dribbleDistance: 0.85, // キープ中のボールと体の距離
+  dribbleSide: 0.35,    // キープ中のボールを右足側にずらす量（後ろのカメラから隠れないように）
   kickSpeed: 24,        // シュートの速さ（一定）
   kickLift: 4,          // シュートの浮き上がり
   kickCooldown: 0.4,    // 蹴った直後にボールを拾わない時間（秒）
@@ -100,8 +101,11 @@ export class Player {
     }
 
     if (this.hasBall) {
-      const targetX = this.position.x + Math.sin(this.facing) * PLAYER.dribbleDistance;
-      const targetZ = this.position.z + Math.cos(this.facing) * PLAYER.dribbleDistance;
+      // 正面 (sin, cos) と右手側 (-cos, sin) を組み合わせた位置
+      const fx = Math.sin(this.facing);
+      const fz = Math.cos(this.facing);
+      const targetX = this.position.x + fx * PLAYER.dribbleDistance - fz * PLAYER.dribbleSide;
+      const targetZ = this.position.z + fz * PLAYER.dribbleDistance + fx * PLAYER.dribbleSide;
       const t = 1 - Math.exp(-15 * dt);
       ball.position.x += (targetX - ball.position.x) * t;
       ball.position.z += (targetZ - ball.position.z) * t;

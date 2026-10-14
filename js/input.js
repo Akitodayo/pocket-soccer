@@ -35,16 +35,16 @@ function isDown(name) {
   return KEYS[name].some((code) => pressed.has(code));
 }
 
-// 移動の向き。画面の上が奥（-z）、右が +x。長さは 0〜1
+// 画面から見た移動の向き。forward は画面の奥（前）、right は画面の右。長さは 0〜1
 export function getMove() {
-  let x = (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0);
-  let z = (isDown('down') ? 1 : 0) - (isDown('up') ? 1 : 0);
-  const length = Math.hypot(x, z);
+  let right = (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0);
+  let forward = (isDown('up') ? 1 : 0) - (isDown('down') ? 1 : 0);
+  const length = Math.hypot(right, forward);
   if (length > 1) {
-    x /= length;
-    z /= length;
+    right /= length;
+    forward /= length;
   }
-  return { x, z };
+  return { right, forward };
 }
 
 // シュートが押されたら1回だけ true を返す
