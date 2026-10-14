@@ -206,12 +206,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) autoPause();
 });
 
-// スマホを縦向きにしたら（横向きの案内が出ている間）も一時停止する
-const portrait = window.matchMedia('(orientation: portrait) and (pointer: coarse)');
-portrait.addEventListener('change', () => {
-  if (portrait.matches) autoPause();
-});
-
 // ---- 試合の進行 ----
 
 // ボールを中央に置き、kickingTeam の選手がボールのすぐ後ろから始める
@@ -583,6 +577,7 @@ if (params.has('debug')) {
 // ---- ゲームループ ----
 
 goToTitle();
+window.__gameReady = true; // 読み込めたことを index.html に知らせる（読み込めないときの案内を出さない）
 let last = performance.now();
 
 function loop(now) {

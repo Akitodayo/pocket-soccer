@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-title" content="ポケットサッカー">
   <title>ポケットサッカー</title>
   <link rel="stylesheet" href="style.css">
+  <!-- 古いブラウザ（iOS 16.4 より前など）でも下の import map が使えるようにする -->
+  <script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.8.3/dist/es-module-shims.js"></script>
   <!-- Three.js を CDN から読み込む（ビルド作業なし） -->
   <script type="importmap">
     {
@@ -88,12 +90,25 @@
     </section>
   </div>
 
-  <!-- スマホを縦に持っているときの案内 -->
-  <div id="rotate-hint">
-    <div class="rotate-icon"></div>
-    <p>スマホを横向きにして遊んでください</p>
+  <!-- ゲームを読み込めなかったときの案内（読み込めたら出さない） -->
+  <div id="load-error" hidden>
+    <p class="load-error-title">ゲームを読み込めませんでした</p>
+    <p>通信のよい場所で、ページを読み込み直してください。</p>
+    <p>ブラウザが古いと遊べないことがあります（iPhone は iOS 16.4 以降、Android は最新の Chrome がおすすめ）。</p>
+    <p id="load-error-detail" class="load-error-detail"></p>
   </div>
 
   <script type="module" src="js/main.js"></script>
+  <script>
+    // 8秒たってもゲームが始まらなければ、理由を表示する
+    window.addEventListener('error', (e) => {
+      window.__loadError = e.message;
+    });
+    setTimeout(() => {
+      if (window.__gameReady) return;
+      document.getElementById('load-error-detail').textContent = window.__loadError || '';
+      document.getElementById('load-error').hidden = false;
+    }, 8000);
+  </script>
 </body>
 </html>

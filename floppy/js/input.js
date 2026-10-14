@@ -54,6 +54,20 @@ const STICK_RADIUS = 0.11; // スティックが動く半径（画面の高さ�
 const DEAD_ZONE = 0.15;    // この割合より小さい指の動きは無視する
 
 const touch = { id: null, originX: 0, originY: 0, right: 0, forward: 0 };
+
+// スマホを縦に持っているときは、ゲーム画面を90度回して表示している（style.css）。
+// そのときは、指の位置と動きも画面の向きに合わせて回して読む
+const portrait = window.matchMedia('(orientation: portrait) and (pointer: coarse)');
+
+// 指の位置を、ゲーム画面の中の位置（左上が 0,0）に直す
+function toGamePoint(clientX, clientY) {
+  const rect = game.getBoundingClientRect();
+  if (portrait.matches) return { x: clientY - rect.top, y: rect.right - clientX };
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+// 画面の向きが変わったら、指の状態をいったん捨てる
+portrait.addEventListener('change', () => releaseStick());
 const heldButtons = new Set(); // 押し続けているタッチボタン（'pass' など）
 
 // タッチできる端末なら、画面にスティックとボタンを出す
@@ -72,12 +86,12 @@ zone.addEventListener('pointerdown', (e) => {
   } catch {
     // 指を画面の外へ動かしたときに追えなくなるだけなので、失敗しても続ける
   }
-  touch.originX = e.clientX;
-  touch.originY = e.clientY;
-  const rect = game.getBoundingClientRect();
+  const point = toGamePoint(e.clientX, e.clientY);
+  touch.originX = point.x;
+  touch.originY = point.y;
   stick.classList.add('active');
-  stick.style.left = `${e.clientX - rect.left}px`;
-  stick.style.top = `${e.clientY - rect.top}px`;
+  stick.style.left = `${point.x}px`;
+  stick.style.top = `${point.y}px`;
   moveStick(e);
 });
 
@@ -93,8 +107,9 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 
 function moveStick(e) {
   const radius = game.clientHeight * STICK_RADIUS;
-  let dx = e.clientX - touch.originX;
-  let dy = e.clientY - touch.originY;
+  const point = toGamePoint(e.clientX, e.clientY);
+  let dx = point.x - touch.originX;
+  let dy = point.y - touch.originY;
   const length = Math.hypot(dx, dy);
   if (length > radius) {
     dx *= radius / length;
