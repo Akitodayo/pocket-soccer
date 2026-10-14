@@ -1,0 +1,540 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  overscroll-behavior: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* スマホで画面がスクロールしたり拡大したりしないようにする */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* 16:9 を保ったまま、ウィンドウに収まる最大サイズにする。中の文字の大きさは画面枠の高さ（cqh）に合わせる */
+#game {
+  position: relative;
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  width: min(100dvw, calc(100dvh * 16 / 9));
+  height: min(100dvh, calc(100dvw * 9 / 16));
+  overflow: hidden;
+  container-type: size;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#game canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#game [hidden] {
+  display: none !important;
+}
+
+/* ---- 試合中の表示 ---- */
+
+#scoreboard {
+  position: absolute;
+  top: 3cqh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 1.6cqh;
+  padding: 1cqh 2.4cqh;
+  border-radius: 99px;
+  background: rgba(10, 20, 30, 0.72);
+  font-size: 4.4cqh;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+#game.in-match #scoreboard {
+  display: flex;
+}
+
+.team {
+  display: inline-block;
+  font-size: 2.8cqh;
+  font-weight: 700;
+  padding: 0.6cqh 1cqh;
+  border-radius: 0.8cqh;
+  line-height: 1;
+}
+
+.team-blue {
+  background: #f2f2f2;
+  color: #1a1a1a;
+}
+
+.team-red {
+  background: #1f1f1f;
+  border: 0.2cqh solid rgba(255, 255, 255, 0.5);
+}
+
+#scoreboard .score {
+  min-width: 2.6cqh;
+  text-align: center;
+}
+
+#scoreboard .timer {
+  min-width: 10cqh;
+  text-align: center;
+  font-size: 3.4cqh;
+  color: #ffe14a;
+}
+
+/* 残り10秒からタイマーを赤くする */
+#scoreboard .timer.hurry {
+  color: #ff6b5e;
+}
+
+.banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18cqh;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: #ffe14a;
+  text-shadow: 0 0.6cqh 0 #c0392b, 0 1.2cqh 2.4cqh rgba(0, 0, 0, 0.5);
+  animation: banner-pop 0.35s ease-out;
+  pointer-events: none;
+}
+
+.banner.small {
+  font-size: 12cqh;
+}
+
+@keyframes banner-pop {
+  from {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---- 必殺技の演出：まわりを暗くし、集中線を回す ---- */
+
+#special-fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: radial-gradient(circle at 50% 50%, transparent 28%, rgba(0, 0, 0, 0.6) 78%);
+}
+
+#special-fx::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 6deg, rgba(255, 236, 200, 0.28) 6deg 7deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 18%, #000 42%);
+  mask-image: radial-gradient(circle, transparent 18%, #000 42%);
+  animation: speed-lines 0.5s linear infinite;
+}
+
+#special-fx.active {
+  opacity: 1;
+}
+
+@keyframes speed-lines {
+  to {
+    transform: rotate(14deg);
+  }
+}
+
+/* 必殺技の名前：斜めに傾けた大きな文字が、横からすべり込む */
+.special-name {
+  position: absolute;
+  left: 6cqh;
+  bottom: 14cqh;
+  transform: rotate(-6deg);
+  font-size: 12cqh;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: #fff;
+  pointer-events: none;
+  animation: special-name-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+.special-name[data-type="tornado"] {
+  text-shadow: 0 0 1.2cqh #ff7a00, 0.5cqh 0.5cqh 0 #c42a00, -0.3cqh -0.3cqh 0 #ffb000;
+}
+
+.special-name[data-type="godhand"] {
+  text-shadow: 0 0 1.4cqh #ffe08a, 0.5cqh 0.5cqh 0 #b88a00, -0.3cqh -0.3cqh 0 #fff3c4;
+}
+
+@keyframes special-name-in {
+  from {
+    transform: translateX(-60cqh) rotate(-6deg) scale(1.4);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-6deg);
+    opacity: 1;
+  }
+}
+
+/* ---- 音のオン・オフ ---- */
+
+.sound-button {
+  position: absolute;
+  top: 3cqh;
+  left: 3cqh;
+  z-index: 3;
+  /* 指で押しやすいよう、小さい画面でも 44px より小さくしない */
+  width: max(9cqh, 44px);
+  height: max(9cqh, 44px);
+  border: none;
+  border-radius: 50%;
+  background: rgba(10, 20, 30, 0.6);
+  color: #fff;
+  font-family: inherit;
+  font-size: 4.6cqh;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 音を消しているときは、斜めの線を引いて薄くする */
+.sound-button.muted {
+  color: rgba(255, 255, 255, 0.45);
+  background:
+    linear-gradient(45deg, transparent 46%, rgba(255, 110, 100, 0.95) 46%, rgba(255, 110, 100, 0.95) 54%, transparent 54%),
+    rgba(10, 20, 30, 0.6);
+}
+
+/* ---- スマホの操作 ---- */
+
+#touch-controls {
+  display: none;
+}
+
+#game.touch.in-match:not(.paused) #touch-controls {
+  display: block;
+}
+
+/* スティックを出せる場所（画面の左半分。上の得点表示の下から） */
+#stick-zone {
+  position: absolute;
+  left: 0;
+  top: 14cqh;
+  width: 50%;
+  bottom: 0;
+  touch-action: none;
+}
+
+/* 指を置いていないときは左下にうっすら表示し、置いたらその場所に出す */
+#stick {
+  position: absolute;
+  left: 20cqh;
+  top: 74cqh;
+  width: 24cqh;
+  height: 24cqh;
+  margin: -12cqh 0 0 -12cqh;
+  border-radius: 50%;
+  border: 0.5cqh solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#stick.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+#stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 11cqh;
+  height: 11cqh;
+  margin: -5.5cqh 0 0 -5.5cqh;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0.6cqh 1.4cqh rgba(0, 0, 0, 0.3);
+}
+
+.touch-button {
+  position: absolute;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 700;
+  touch-action: none;
+  cursor: pointer;
+}
+
+#kick-button {
+  right: 6cqh;
+  bottom: 7cqh;
+  width: 24cqh;
+  height: 24cqh;
+  border-radius: 50%;
+  background: rgba(255, 196, 40, 0.88);
+  border: 0.6cqh solid rgba(255, 255, 255, 0.7);
+  font-size: 4.4cqh;
+  color: #3a2600;
+  box-shadow: 0 0.8cqh 0 rgba(150, 100, 0, 0.8);
+}
+
+#pass-button {
+  right: 33cqh;
+  bottom: 4cqh;
+  width: 18cqh;
+  height: 18cqh;
+  border-radius: 50%;
+  background: rgba(70, 160, 255, 0.85);
+  border: 0.6cqh solid rgba(255, 255, 255, 0.7);
+  font-size: 4cqh;
+  box-shadow: 0 0.8cqh 0 rgba(20, 70, 140, 0.8);
+}
+
+#pass-button.pressed {
+  transform: translateY(0.6cqh);
+  box-shadow: 0 0.2cqh 0 rgba(20, 70, 140, 0.8);
+}
+
+#kick-button.pressed {
+  transform: translateY(0.6cqh);
+  box-shadow: 0 0.2cqh 0 rgba(150, 100, 0, 0.8);
+}
+
+#pause-button {
+  top: 3cqh;
+  right: 3cqh;
+  width: max(10cqh, 44px);
+  height: max(10cqh, 44px);
+  border-radius: 50%;
+  background: rgba(10, 20, 30, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2cqh;
+}
+
+#pause-button span {
+  width: 1.2cqh;
+  height: 4cqh;
+  border-radius: 0.3cqh;
+  background: #fff;
+}
+
+#pause-button.pressed {
+  background: rgba(10, 20, 30, 0.85);
+}
+
+/* ---- タイトル・結果・一時停止の画面 ---- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3cqh;
+  background: rgba(8, 16, 24, 0.55);
+  text-align: center;
+}
+
+.screen-title {
+  background: linear-gradient(180deg, rgba(8, 16, 24, 0.2) 0%, rgba(8, 16, 24, 0.7) 100%);
+}
+
+.logo {
+  font-size: 13cqh;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0.8cqh 0 #1b3f8f, 0 1.4cqh 3cqh rgba(0, 0, 0, 0.45);
+}
+
+.logo span {
+  color: #ffe14a;
+}
+
+.tagline {
+  font-size: 3.4cqh;
+  font-weight: 700;
+  text-shadow: 0 0.3cqh 1cqh rgba(0, 0, 0, 0.6);
+}
+
+.record {
+  font-size: 3.4cqh;
+  padding: 1cqh 3cqh;
+  border-radius: 99px;
+  background: rgba(10, 20, 30, 0.6);
+}
+
+.record b {
+  font-size: 4.4cqh;
+  color: #ffe14a;
+  margin: 0 0.3em 0 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+
+.howto {
+  font-size: 2.6cqh;
+  opacity: 0.9;
+  text-shadow: 0 0.3cqh 1cqh rgba(0, 0, 0, 0.6);
+}
+
+.howto-touch,
+#game.touch .howto-keys {
+  display: none;
+}
+
+#game.touch .howto-touch {
+  display: block;
+}
+
+.btn {
+  min-width: 34cqh;
+  padding: 2.2cqh 5cqh;
+  border: 0.4cqh solid rgba(255, 255, 255, 0.85);
+  border-radius: 99px;
+  background: rgba(10, 20, 30, 0.6);
+  color: #fff;
+  font-family: inherit;
+  font-size: 4.2cqh;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn-primary {
+  border-color: #ffe14a;
+  background: #ffc428;
+  color: #3a2600;
+  box-shadow: 0 0.8cqh 0 #b38200;
+}
+
+.btn:active {
+  transform: translateY(0.5cqh);
+}
+
+.btn:focus-visible {
+  outline: 0.5cqh solid #fff;
+  outline-offset: 0.6cqh;
+}
+
+.buttons {
+  display: flex;
+  gap: 3cqh;
+  margin-top: 2cqh;
+}
+
+.screen-heading {
+  font-size: 8cqh;
+  font-weight: 900;
+}
+
+.result-label {
+  font-size: 15cqh;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.1;
+  text-shadow: 0 1.2cqh 3cqh rgba(0, 0, 0, 0.45);
+}
+
+.result-label[data-result="win"] {
+  color: #ffe14a;
+}
+
+.result-label[data-result="lose"] {
+  color: #b9c7d6;
+}
+
+.final-score {
+  display: flex;
+  align-items: center;
+  gap: 2.4cqh;
+  font-size: 9cqh;
+  font-variant-numeric: tabular-nums;
+}
+
+.final-score i {
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.final-score .team {
+  font-size: 3.6cqh;
+}
+
+/* ---- スマホを縦に持っているときの案内 ---- */
+
+#rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 16px;
+  background: #0f1a24;
+  color: #fff;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rotate-icon {
+  width: 48px;
+  height: 80px;
+  border: 4px solid #fff;
+  border-radius: 10px;
+  animation: rotate-phone 2s ease-in-out infinite;
+}
+
+@keyframes rotate-phone {
+  0%, 30% {
+    transform: rotate(0deg);
+  }
+  60%, 100% {
+    transform: rotate(-90deg);
+  }
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-hint {
+    display: flex;
+  }
+}
