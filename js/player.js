@@ -1,6 +1,6 @@
 // 選手（操作・CPU共通）
 import * as THREE from 'three';
-import { FIELD, GOAL } from './field.js';
+import { FIELD } from './field.js';
 import { BALL_RADIUS } from './ball.js';
 
 // 選手の動きの調整用の数値
@@ -15,18 +15,24 @@ export const PLAYER = {
   kickSpeed: 24,        // シュートの速さ（一定）
   kickLift: 4,          // シュートの浮き上がり
   kickCooldown: 0.4,    // 蹴った直後にボールを拾わない時間（秒）
-  kickoffDistance: 1.3, // キックオフのときにボールの後ろに立つ距離
+  kickoffDistance: 0.9, // キックオフのときにボールの後ろに立つ距離（すぐキープできる近さ）
+  stealDelay: 0.7,      // 相手がボールを持ってからこの秒数たつと、触れて奪える
+  stealLock: 1.0,       // 奪われた側がボールに触れない時間（秒）
 };
 
 export class Player {
   // attackDir: 攻めるゴールの向き（1 なら右、-1 なら左）
-  constructor(scene, { color, x, z, attackDir, controlled = false }) {
+  // speed: 走る速さ。bounds: 動ける範囲 { minX, maxX, minZ, maxZ }（省略するとピッチ全体）
+  // keeper: キーパーなら true（キーパーが持ったボールは奪えない）
+  constructor(scene, { color, x, z, attackDir, controlled = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
     this.home = new THREE.Vector3(x, 0, z);
     this.attackDir = attackDir;
+    this.speed = speed;
+    this.keeper = keeper;
+    const maxX = FIELD.length / 2 - PLAYER.radius;
+    const maxZ = FIELD.width / 2 - PLAYER.radius;
+    this.bounds = bounds ?? { minX: -maxX, maxX, minZ: -maxZ, maxZ };
     this.velocity = new THREE.Vector3();
-    this.facing = attackDir > 0 ? Math.PI / 2 : -Math.PI / 2;
-    this.hasBall = false;
-    this.kickTimer = 0;
 
     this.mesh = createPlayerMesh(color, controlled);
     this.position = this.mesh.position;
@@ -34,34 +40,35 @@ export class Player {
     this.reset();
   }
 
-  // キックオフの位置に戻す。kickingOff が true ならボールのすぐ後ろ、false なら自分の陣地の最初の位置
+  // キックオフの位置に戻す。kickingOff が true ならボールのすぐ後ろ、false なら最初の位置
   reset(kickingOff = false) {
     this.position.copy(this.home);
     if (kickingOff) this.position.set(-this.attackDir * PLAYER.kickoffDistance, 0, 0);
     this.velocity.set(0, 0, 0);
     this.facing = this.attackDir > 0 ? Math.PI / 2 : -Math.PI / 2;
     this.mesh.rotation.y = this.facing;
-    this.hasBall = false;
     this.kickTimer = 0;
+    this.lockTimer = 0;
+    // CPU が使う記憶（cpu.js）
+    this.holdTime = 0;
+    this.judgedShot = -1;
+    this.saveOk = false;
   }
 
   // move: { x, z } の向き（長さ 0〜1）
-  update(dt, move) {
+  // speed: この1コマだけ走る速さを変える。instant: true なら加速を待たずにすぐその速さで動く（キーパーの飛びつき）
+  update(dt, move, { speed = this.speed, instant = false } = {}) {
     this.kickTimer = Math.max(0, this.kickTimer - dt);
+    this.lockTimer = Math.max(0, this.lockTimer - dt);
 
     // 目標の速さに少しずつ近づける
-    const t = 1 - Math.exp(-PLAYER.accel * dt / PLAYER.speed);
-    this.velocity.x += (move.x * PLAYER.speed - this.velocity.x) * t;
-    this.velocity.z += (move.z * PLAYER.speed - this.velocity.z) * t;
+    const t = instant ? 1 : 1 - Math.exp(-PLAYER.accel * dt / PLAYER.speed);
+    this.velocity.x += (move.x * speed - this.velocity.x) * t;
+    this.velocity.z += (move.z * speed - this.velocity.z) * t;
     this.position.addScaledVector(this.velocity, dt);
+    this.clampToBounds();
 
-    // ピッチの白線の内側に収める
-    const maxX = FIELD.length / 2 - PLAYER.radius;
-    const maxZ = FIELD.width / 2 - PLAYER.radius;
-    this.position.x = THREE.MathUtils.clamp(this.position.x, -maxX, maxX);
-    this.position.z = THREE.MathUtils.clamp(this.position.z, -maxZ, maxZ);
-
-    // 入力した方向へ体を向ける
+    // 進む方向へ体を向ける
     if (Math.hypot(move.x, move.z) > 0.1) {
       const target = Math.atan2(move.x, move.z);
       let diff = target - this.facing;
@@ -71,38 +78,55 @@ export class Player {
     }
   }
 
-  distanceTo(ball) {
-    return Math.hypot(ball.position.x - this.position.x, ball.position.z - this.position.z);
+  clampToBounds() {
+    const b = this.bounds;
+    this.position.x = THREE.MathUtils.clamp(this.position.x, b.minX, b.maxX);
+    this.position.z = THREE.MathUtils.clamp(this.position.z, b.minZ, b.maxZ);
   }
 
-  // シュート：ボールが足元にあれば、相手ゴールの方向へ一定の強さで蹴る
-  tryKick(ball) {
-    if (this.kickTimer > 0) return false;
-    if (!this.hasBall && !(this.distanceTo(ball) < PLAYER.controlRange && ball.position.y < 1)) return false;
+  distanceTo(point) {
+    return Math.hypot(point.x - this.position.x, point.z - this.position.z);
+  }
+
+  hasBall(ball) {
+    return ball.owner === this;
+  }
+
+  // シュート：ボールが足元にあれば、相手ゴールの aimZ（ゴールの横方向の位置）を狙って一定の強さで蹴る
+  tryKick(ball, aimZ = 0) {
+    const loose = !ball.owner && this.distanceTo(ball.position) < PLAYER.controlRange && ball.position.y < 1;
+    if (this.kickTimer > 0 || !(this.hasBall(ball) || loose)) return false;
 
     const goalX = this.attackDir * FIELD.length / 2;
-    const aimZ = THREE.MathUtils.clamp(ball.position.z * 0.3, -GOAL.width * 0.3, GOAL.width * 0.3);
-    ball.kick(goalX - ball.position.x, aimZ - ball.position.z, PLAYER.kickSpeed, PLAYER.kickLift);
-
-    this.hasBall = false;
-    this.kickTimer = PLAYER.kickCooldown;
+    this.kickToward(ball, goalX - ball.position.x, aimZ - ball.position.z, PLAYER.kickSpeed, PLAYER.kickLift);
     return true;
   }
 
-  // ドリブル：近くの低いボールを体の正面にキープする
-  keepBall(ball, dt) {
-    const dist = this.distanceTo(ball);
-    const low = ball.position.y < 1;
+  // 向き (dirX, dirZ) へ蹴る（キーパーのクリアにも使う）
+  kickToward(ball, dirX, dirZ, speed, lift) {
+    ball.kick(dirX, dirZ, speed, lift);
+    this.kickTimer = PLAYER.kickCooldown;
+  }
 
-    if (this.kickTimer > 0 || !low) {
-      this.hasBall = false;
-    } else if (dist < PLAYER.controlRange) {
-      this.hasBall = true;
-    } else if (dist > PLAYER.controlRange * 1.6) {
-      this.hasBall = false;
+  // ドリブル：近くのボールを体の正面にキープする。相手が持っているボールは、少したつと触れて奪える
+  // range: ボールに届く距離、maxHeight: 届く高さ、allowed: false ならボールに触れない（キーパーがシュートを止めそこねたとき）
+  keepBall(ball, dt, { range = PLAYER.controlRange, maxHeight = 1, allowed = true } = {}) {
+    const dist = this.distanceTo(ball.position);
+    const able = allowed && this.kickTimer <= 0 && this.lockTimer <= 0 && ball.position.y < maxHeight;
+
+    if (this.hasBall(ball)) {
+      if (!able || dist > range * 1.6) ball.owner = null;
+    } else if (able && dist < range) {
+      const owner = ball.owner;
+      if (!owner) {
+        ball.setOwner(this);
+      } else if (owner.attackDir !== this.attackDir && !owner.keeper && ball.ownerTimer > PLAYER.stealDelay) {
+        owner.lockTimer = PLAYER.stealLock;
+        ball.setOwner(this);
+      }
     }
 
-    if (this.hasBall) {
+    if (this.hasBall(ball)) {
       // 正面 (sin, cos) と右手側 (-cos, sin) を組み合わせた位置
       const fx = Math.sin(this.facing);
       const fz = Math.cos(this.facing);
@@ -117,13 +141,35 @@ export class Player {
       return;
     }
 
-    // キープしていないときは、体に当たったボールを押し出す
+    // だれも持っていないボールが体に当たったら押し出す
     const minDist = PLAYER.radius + BALL_RADIUS;
-    if (low && dist < minDist && dist > 0.0001) {
+    if (allowed && !ball.owner && ball.position.y < 1 && dist < minDist && dist > 0.0001) {
       const nx = (ball.position.x - this.position.x) / dist;
       const nz = (ball.position.z - this.position.z) / dist;
       ball.position.x = this.position.x + nx * minDist;
       ball.position.z = this.position.z + nz * minDist;
+    }
+  }
+}
+
+// 選手どうしが重ならないように押し離す
+export function separatePlayers(players) {
+  const minDist = PLAYER.radius * 2;
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const a = players[i].position;
+      const b = players[j].position;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= minDist || dist < 0.0001) continue;
+      const push = (minDist - dist) / 2;
+      a.x -= (dx / dist) * push;
+      a.z -= (dz / dist) * push;
+      b.x += (dx / dist) * push;
+      b.z += (dz / dist) * push;
+      players[i].clampToBounds();
+      players[j].clampToBounds();
     }
   }
 }

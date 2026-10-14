@@ -2,7 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1a24">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="ポケットサッカー">
   <title>ポケットサッカー</title>
   <link rel="stylesheet" href="style.css">
   <!-- Three.js を CDN から読み込む（ビルド作業なし） -->
@@ -25,9 +30,60 @@
       <span id="score-red" class="score">0</span>
       <span class="team team-red">赤</span>
     </div>
-    <div id="goal-banner" class="banner" hidden>GOAL!</div>
-    <div id="message" class="message" hidden></div>
+    <div id="banner" class="banner" hidden>GOAL!</div>
+
+    <!-- スマホの操作（タッチできる端末の試合中だけ表示） -->
+    <div id="touch-controls">
+      <div id="stick-zone"></div>
+      <div id="stick"><div id="stick-knob"></div></div>
+      <button id="kick-button" class="touch-button" type="button">シュート</button>
+      <button id="pause-button" class="touch-button" type="button" aria-label="一時停止">
+        <span></span><span></span>
+      </button>
+    </div>
+
+    <!-- タイトル画面 -->
+    <section id="title-screen" class="screen screen-title">
+      <h1 class="logo">ポケット<span>サッカー</span></h1>
+      <p class="tagline">3分間でCPUより多くゴールを決めよう</p>
+      <p class="record">
+        通算 <b id="record-win">0</b>勝 <b id="record-lose">0</b>敗 <b id="record-draw">0</b>分
+      </p>
+      <button id="start-button" class="btn btn-primary" type="button">試合開始</button>
+      <p class="howto howto-keys">移動：矢印キー / WASD　シュート：スペース　一時停止：Esc</p>
+      <p class="howto howto-touch">移動：画面の左半分をなぞる　シュート：右下のボタン</p>
+    </section>
+
+    <!-- 結果画面 -->
+    <section id="result-screen" class="screen" hidden>
+      <p id="result-label" class="result-label">勝ち！</p>
+      <p class="final-score">
+        <span class="team team-blue">青</span>
+        <b id="final-blue">0</b><i>-</i><b id="final-red">0</b>
+        <span class="team team-red">赤</span>
+      </p>
+      <div class="buttons">
+        <button id="again-button" class="btn btn-primary" type="button">もう一度</button>
+        <button id="title-button" class="btn" type="button">タイトルへ</button>
+      </div>
+    </section>
+
+    <!-- 一時停止 -->
+    <section id="pause-screen" class="screen" hidden>
+      <p class="screen-heading">一時停止中</p>
+      <div class="buttons">
+        <button id="resume-button" class="btn btn-primary" type="button">再開</button>
+        <button id="quit-button" class="btn" type="button">タイトルへ</button>
+      </div>
+    </section>
   </div>
+
+  <!-- スマホを縦に持っているときの案内 -->
+  <div id="rotate-hint">
+    <div class="rotate-icon"></div>
+    <p>スマホを横向きにして遊んでください</p>
+  </div>
+
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -30,6 +30,10 @@ class Ball {
     this.mesh = mesh;
     this.position = mesh.position;
     this.velocity = new THREE.Vector3();
+    this.owner = null;    // いまボールをキープしている選手（いなければ null）
+    this.ownerTimer = 0;  // いまの選手がキープしてからの時間（秒）
+    this.shotId = 0;      // 蹴るたびに1増える番号（キーパーが同じシュートを2回判定しないため）
+    this.shotFromX = 0;   // 最後に蹴った位置（キーパーが止める確率に使う）
     this.reset();
   }
 
@@ -37,6 +41,19 @@ class Ball {
   reset() {
     this.position.set(0, BALL_RADIUS, 0);
     this.velocity.set(0, 0, 0);
+    this.owner = null;
+    this.ownerTimer = 0;
+  }
+
+  // 地面と平行な方向の速さ
+  get speed() {
+    return Math.hypot(this.velocity.x, this.velocity.z);
+  }
+
+  // player がボールをキープし始める
+  setOwner(player) {
+    this.owner = player;
+    this.ownerTimer = 0;
   }
 
   get onGround() {
@@ -47,11 +64,15 @@ class Ball {
   kick(dirX, dirZ, speed, lift) {
     const length = Math.hypot(dirX, dirZ) || 1;
     this.velocity.set((dirX / length) * speed, lift, (dirZ / length) * speed);
+    this.owner = null;
+    this.shotId += 1;
+    this.shotFromX = this.position.x;
   }
 
   update(dt) {
     const p = this.position;
     const v = this.velocity;
+    this.ownerTimer += dt;
 
     v.y -= BALL.gravity * dt;
     p.addScaledVector(v, dt);

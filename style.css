@@ -10,15 +10,20 @@ body {
   height: 100%;
   overflow: hidden;
   background: #000;
+  overscroll-behavior: none;
 }
 
 body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* スマホで画面がスクロールしたり拡大したりしないようにする */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 
-/* 16:9 を保ったまま、ウィンドウに収まる最大サイズにする */
+/* 16:9 を保ったまま、ウィンドウに収まる最大サイズにする。中の文字の大きさは画面枠の高さ（cqh）に合わせる */
 #game {
   position: relative;
   width: min(100vw, calc(100vh * 16 / 9));
@@ -26,6 +31,11 @@ body {
   width: min(100dvw, calc(100dvh * 16 / 9));
   height: min(100dvh, calc(100dvw * 9 / 16));
   overflow: hidden;
+  container-type: size;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #game canvas {
@@ -34,30 +44,18 @@ body {
   height: 100%;
 }
 
-/* ここから試合中の文字表示。大きさは画面枠の高さ（cqh）に合わせて変わる */
-#game {
-  container-type: size;
-  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
-  color: #fff;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-#game > div {
-  position: absolute;
-  z-index: 1;
-  pointer-events: none;
-}
-
 #game [hidden] {
-  display: none;
+  display: none !important;
 }
+
+/* ---- 試合中の表示 ---- */
 
 #scoreboard {
+  position: absolute;
   top: 3cqh;
   left: 50%;
   transform: translateX(-50%);
-  display: flex;
+  display: none;
   align-items: center;
   gap: 1.6cqh;
   padding: 1cqh 2.4cqh;
@@ -67,19 +65,27 @@ body {
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
-#scoreboard .team {
+#game.in-match #scoreboard {
+  display: flex;
+}
+
+.team {
+  display: inline-block;
   font-size: 2.8cqh;
+  font-weight: 700;
   padding: 0.6cqh 1cqh;
   border-radius: 0.8cqh;
+  line-height: 1;
 }
 
-#scoreboard .team-blue {
+.team-blue {
   background: #2f6fe0;
 }
 
-#scoreboard .team-red {
+.team-red {
   background: #d8403a;
 }
 
@@ -101,6 +107,7 @@ body {
 }
 
 .banner {
+  position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -108,9 +115,15 @@ body {
   font-weight: 900;
   font-style: italic;
   letter-spacing: 0.04em;
+  white-space: nowrap;
   color: #ffe14a;
   text-shadow: 0 0.6cqh 0 #c0392b, 0 1.2cqh 2.4cqh rgba(0, 0, 0, 0.5);
   animation: banner-pop 0.35s ease-out;
+  pointer-events: none;
+}
+
+.banner.small {
+  font-size: 12cqh;
 }
 
 @keyframes banner-pop {
@@ -124,21 +137,289 @@ body {
   }
 }
 
-.message {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 3cqh 5cqh;
-  border-radius: 2cqh;
-  background: rgba(10, 20, 30, 0.78);
-  text-align: center;
-  font-size: 3.2cqh;
-  line-height: 1.6;
-  white-space: nowrap;
+/* ---- スマホの操作 ---- */
+
+#touch-controls {
+  display: none;
 }
 
-.message strong {
+#game.touch.in-match:not(.paused) #touch-controls {
   display: block;
-  font-size: 7cqh;
-  line-height: 1.3;
+}
+
+/* スティックを出せる場所（画面の左半分。上の得点表示の下から） */
+#stick-zone {
+  position: absolute;
+  left: 0;
+  top: 14cqh;
+  width: 50%;
+  bottom: 0;
+  touch-action: none;
+}
+
+/* 指を置いていないときは左下にうっすら表示し、置いたらその場所に出す */
+#stick {
+  position: absolute;
+  left: 20cqh;
+  top: 74cqh;
+  width: 24cqh;
+  height: 24cqh;
+  margin: -12cqh 0 0 -12cqh;
+  border-radius: 50%;
+  border: 0.5cqh solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#stick.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+#stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 11cqh;
+  height: 11cqh;
+  margin: -5.5cqh 0 0 -5.5cqh;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0.6cqh 1.4cqh rgba(0, 0, 0, 0.3);
+}
+
+.touch-button {
+  position: absolute;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 700;
+  touch-action: none;
+  cursor: pointer;
+}
+
+#kick-button {
+  right: 6cqh;
+  bottom: 7cqh;
+  width: 24cqh;
+  height: 24cqh;
+  border-radius: 50%;
+  background: rgba(255, 196, 40, 0.88);
+  border: 0.6cqh solid rgba(255, 255, 255, 0.7);
+  font-size: 4.4cqh;
+  color: #3a2600;
+  box-shadow: 0 0.8cqh 0 rgba(150, 100, 0, 0.8);
+}
+
+#kick-button.pressed {
+  transform: translateY(0.6cqh);
+  box-shadow: 0 0.2cqh 0 rgba(150, 100, 0, 0.8);
+}
+
+#pause-button {
+  top: 3cqh;
+  right: 3cqh;
+  width: 10cqh;
+  height: 10cqh;
+  border-radius: 50%;
+  background: rgba(10, 20, 30, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2cqh;
+}
+
+#pause-button span {
+  width: 1.2cqh;
+  height: 4cqh;
+  border-radius: 0.3cqh;
+  background: #fff;
+}
+
+#pause-button.pressed {
+  background: rgba(10, 20, 30, 0.85);
+}
+
+/* ---- タイトル・結果・一時停止の画面 ---- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3cqh;
+  background: rgba(8, 16, 24, 0.55);
+  text-align: center;
+}
+
+.screen-title {
+  background: linear-gradient(180deg, rgba(8, 16, 24, 0.2) 0%, rgba(8, 16, 24, 0.7) 100%);
+}
+
+.logo {
+  font-size: 13cqh;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0.8cqh 0 #1b3f8f, 0 1.4cqh 3cqh rgba(0, 0, 0, 0.45);
+}
+
+.logo span {
+  color: #ffe14a;
+}
+
+.tagline {
+  font-size: 3.4cqh;
+  font-weight: 700;
+  text-shadow: 0 0.3cqh 1cqh rgba(0, 0, 0, 0.6);
+}
+
+.record {
+  font-size: 3.4cqh;
+  padding: 1cqh 3cqh;
+  border-radius: 99px;
+  background: rgba(10, 20, 30, 0.6);
+}
+
+.record b {
+  font-size: 4.4cqh;
+  color: #ffe14a;
+  margin: 0 0.3em 0 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+
+.howto {
+  font-size: 2.6cqh;
+  opacity: 0.9;
+  text-shadow: 0 0.3cqh 1cqh rgba(0, 0, 0, 0.6);
+}
+
+.howto-touch,
+#game.touch .howto-keys {
+  display: none;
+}
+
+#game.touch .howto-touch {
+  display: block;
+}
+
+.btn {
+  min-width: 34cqh;
+  padding: 2.2cqh 5cqh;
+  border: 0.4cqh solid rgba(255, 255, 255, 0.85);
+  border-radius: 99px;
+  background: rgba(10, 20, 30, 0.6);
+  color: #fff;
+  font-family: inherit;
+  font-size: 4.2cqh;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn-primary {
+  border-color: #ffe14a;
+  background: #ffc428;
+  color: #3a2600;
+  box-shadow: 0 0.8cqh 0 #b38200;
+}
+
+.btn:active {
+  transform: translateY(0.5cqh);
+}
+
+.btn:focus-visible {
+  outline: 0.5cqh solid #fff;
+  outline-offset: 0.6cqh;
+}
+
+.buttons {
+  display: flex;
+  gap: 3cqh;
+  margin-top: 2cqh;
+}
+
+.screen-heading {
+  font-size: 8cqh;
+  font-weight: 900;
+}
+
+.result-label {
+  font-size: 15cqh;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1.1;
+  text-shadow: 0 1.2cqh 3cqh rgba(0, 0, 0, 0.45);
+}
+
+.result-label[data-result="win"] {
+  color: #ffe14a;
+}
+
+.result-label[data-result="lose"] {
+  color: #b9c7d6;
+}
+
+.final-score {
+  display: flex;
+  align-items: center;
+  gap: 2.4cqh;
+  font-size: 9cqh;
+  font-variant-numeric: tabular-nums;
+}
+
+.final-score i {
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.final-score .team {
+  font-size: 3.6cqh;
+}
+
+/* ---- スマホを縦に持っているときの案内 ---- */
+
+#rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 0 16px;
+  background: #0f1a24;
+  color: #fff;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rotate-icon {
+  width: 48px;
+  height: 80px;
+  border: 4px solid #fff;
+  border-radius: 10px;
+  animation: rotate-phone 2s ease-in-out infinite;
+}
+
+@keyframes rotate-phone {
+  0%, 30% {
+    transform: rotate(0deg);
+  }
+  60%, 100% {
+    transform: rotate(-90deg);
+  }
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-hint {
+    display: flex;
+  }
 }

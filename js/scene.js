@@ -24,9 +24,20 @@ export function updateCamera(camera, target, attackDir, dt, snap = false) {
   camera.lookAt(camera.position.x + attackDir * (CAMERA.back + CAMERA.lookAhead), CAMERA.lookHeight, camera.position.z);
 }
 
+// タイトル画面では、ピッチの上をゆっくり回りながら映す
+export function updateTitleCamera(camera, seconds) {
+  const angle = seconds * 0.08;
+  camera.position.set(Math.sin(angle) * 30, 15, Math.cos(angle) * 30);
+  camera.lookAt(0, 0, 0);
+}
+
+// 描画解像度の段階（画面の細かさ）。重い端末では順に下げる
+const MIN_PIXEL_RATIO = 0.75;
+
 export function createScene(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  let pixelRatio = Math.min(window.devicePixelRatio, 2);
+  renderer.setPixelRatio(pixelRatio);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -68,5 +79,14 @@ export function createScene(container) {
   resize();
   window.addEventListener('resize', resize);
 
-  return { renderer, scene, camera };
+  // 動きが重いときに描画解像度を1段下げる。もう下げられなければ false を返す
+  function lowerResolution() {
+    if (pixelRatio <= MIN_PIXEL_RATIO) return false;
+    pixelRatio = Math.max(MIN_PIXEL_RATIO, pixelRatio - 0.25);
+    renderer.setPixelRatio(pixelRatio);
+    resize();
+    return true;
+  }
+
+  return { renderer, scene, camera, lowerResolution };
 }
