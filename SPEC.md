@@ -167,4 +167,4 @@ Claude Codeには1回に1ステップずつ頼み、毎回ブラウザで動作�
 - [x] 3分で試合が終わり、勝ち・負け・引き分けが正しく出る
 - [x] ブラウザを閉じても通算戦績が残っている
 - [ ] スマホ（横向き）でカクつかずに最後まで操作できる
-- [ ] GitHub PagesのURLで遊べる
+- [x] GitHub PagesのURLで遊べる（https://akitodayo.github.io/pocket-soccer/ ）
