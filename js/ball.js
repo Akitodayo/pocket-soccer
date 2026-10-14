@@ -4,6 +4,9 @@ import { FIELD, GOAL } from './field.js';
 
 export const BALL_RADIUS = 0.35;
 
+// パスがこの時間（秒）たってもだれにも届かなければ、受け手を忘れる
+const PASS_TIMEOUT = 2.5;
+
 // ボールの動きの調整用の数値
 const BALL = {
   gravity: 20,        // 重力（大きいほど早く落ちる）
@@ -34,6 +37,8 @@ class Ball {
     this.ownerTimer = 0;  // いまの選手がキープしてからの時間（秒）
     this.shotId = 0;      // 蹴るたびに1増える番号（キーパーが同じシュートを2回判定しないため）
     this.shotFromX = 0;   // 最後に蹴った位置（キーパーが止める確率に使う）
+    this.passTarget = null; // パスの受け手（受け手はボールへ走り、青チームなら操作もその選手に切り替わる）
+    this.passTimer = 0;     // パスを出してからの時間（秒）
     this.reset();
   }
 
@@ -44,6 +49,7 @@ class Ball {
     this.owner = null;
     this.ownerTimer = 0;
     this.prevX = 0;
+    this.passTarget = null;
   }
 
   // 地面と平行な方向の速さ
@@ -55,6 +61,14 @@ class Ball {
   setOwner(player) {
     this.owner = player;
     this.ownerTimer = 0;
+    this.passTarget = null;
+  }
+
+  // パスとして蹴る（kick のあとに受け手を覚える）
+  pass(dirX, dirZ, speed, lift, receiver) {
+    this.kick(dirX, dirZ, speed, lift);
+    this.passTarget = receiver;
+    this.passTimer = 0;
   }
 
   get onGround() {
@@ -68,12 +82,15 @@ class Ball {
     this.owner = null;
     this.shotId += 1;
     this.shotFromX = this.position.x;
+    this.passTarget = null;
   }
 
   update(dt) {
     const p = this.position;
     const v = this.velocity;
     this.ownerTimer += dt;
+    this.passTimer += dt;
+    if (this.passTarget && this.passTimer > PASS_TIMEOUT) this.passTarget = null;
     this.prevX = p.x; // 動く前の位置（ゴールの中にいたかの判定に使う）
 
     v.y -= BALL.gravity * dt;

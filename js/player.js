@@ -18,13 +18,20 @@ export const PLAYER = {
   kickoffDistance: 0.9, // キックオフのときにボールの後ろに立つ距離（すぐキープできる近さ）
   stealDelay: 0.7,      // 相手がボールを持ってからこの秒数たつと、触れて奪える
   stealLock: 1.0,       // 奪われた側がボールに触れない時間（秒）
+  passBaseSpeed: 6,     // パスの速さ（基本）
+  passSpeedPerMeter: 0.7, // 味方が遠いほど、1mにつきこれだけ強く蹴る
+  passMinSpeed: 8,      // パスの速さの下限
+  passMaxSpeed: 18,     // パスの速さの上限
+  passLift: 0.8,        // パスの浮き上がり（ほぼ地をはうパス）
+  passLead: 0.35,       // 走っている味方の、何秒先の位置へパスするか
 };
 
 export class Player {
   // attackDir: 攻めるゴールの向き（1 なら右、-1 なら左）
   // speed: 走る速さ。bounds: 動ける範囲 { minX, maxX, minZ, maxZ }（省略するとピッチ全体）
   // keeper: キーパーなら true（キーパーが持ったボールは奪えない）
-  constructor(scene, { color, x, z, attackDir, controlled = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
+  // marker: true なら「操作中」の印（足元の黄色い輪と頭の上の三角）を付けられる
+  constructor(scene, { color, x, z, attackDir, marker = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
     this.home = new THREE.Vector3(x, 0, z);
     this.attackDir = attackDir;
     this.speed = speed;
@@ -34,7 +41,8 @@ export class Player {
     this.bounds = bounds ?? { minX: -maxX, maxX, minZ: -maxZ, maxZ };
     this.velocity = new THREE.Vector3();
 
-    this.mesh = createPlayerMesh(color, controlled);
+    this.mesh = createPlayerMesh(color);
+    this.marker = marker ? createMarker(this.mesh) : null;
     this.position = this.mesh.position;
     scene.add(this.mesh);
     this.reset();
@@ -92,10 +100,34 @@ export class Player {
     return ball.owner === this;
   }
 
+  // 「操作中」の印を出す・消す
+  setControlled(on) {
+    if (this.marker) this.marker.visible = on;
+  }
+
+  // ボールを持っている（または足元に転がっている）なら蹴れる
+  canKick(ball) {
+    const loose = !ball.owner && this.distanceTo(ball.position) < PLAYER.controlRange && ball.position.y < 1;
+    return this.kickTimer <= 0 && (this.hasBall(ball) || loose);
+  }
+
+  // receiver（味方）へ、走っている少し先を狙ってパスする
+  passTo(ball, receiver) {
+    if (!this.canKick(ball)) return false;
+    const targetX = receiver.position.x + receiver.velocity.x * PLAYER.passLead;
+    const targetZ = receiver.position.z + receiver.velocity.z * PLAYER.passLead;
+    const dx = targetX - ball.position.x;
+    const dz = targetZ - ball.position.z;
+    const distance = Math.hypot(dx, dz);
+    const speed = THREE.MathUtils.clamp(PLAYER.passBaseSpeed + distance * PLAYER.passSpeedPerMeter, PLAYER.passMinSpeed, PLAYER.passMaxSpeed);
+    ball.pass(dx, dz, speed, PLAYER.passLift, receiver);
+    this.kickTimer = PLAYER.kickCooldown;
+    return true;
+  }
+
   // シュート：ボールが足元にあれば、相手ゴールの aimZ（ゴールの横方向の位置）を狙って一定の強さで蹴る
   tryKick(ball, aimZ = 0) {
-    const loose = !ball.owner && this.distanceTo(ball.position) < PLAYER.controlRange && ball.position.y < 1;
-    if (this.kickTimer > 0 || !(this.hasBall(ball) || loose)) return false;
+    if (!this.canKick(ball)) return false;
 
     const goalX = this.attackDir * FIELD.length / 2;
     this.kickToward(ball, goalX - ball.position.x, aimZ - ball.position.z, PLAYER.kickSpeed, PLAYER.kickLift);
@@ -174,8 +206,8 @@ export function separatePlayers(players) {
   }
 }
 
-// 円柱の体と球の頭でできた選手。操作中の選手は足元に黄色い輪を付ける
-function createPlayerMesh(color, controlled) {
+// 円柱の体と球の頭でできた選手
+function createPlayerMesh(color) {
   const group = new THREE.Group();
   const bodyHeight = 1.0;
 
@@ -203,14 +235,25 @@ function createPlayerMesh(color, controlled) {
   badge.position.set(0, bodyHeight * 0.65, PLAYER.radius * 0.9);
   group.add(badge);
 
-  if (controlled) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(PLAYER.radius + 0.12, PLAYER.radius + 0.25, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffe14a })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.02;
-    group.add(ring);
-  }
+  return group;
+}
+
+// 「操作中」の印：足元の黄色い輪と、頭の上の下向きの三角（遠くからでもわかるように）
+function createMarker(parent) {
+  const group = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({ color: 0xffe14a });
+
+  const ring = new THREE.Mesh(new THREE.RingGeometry(PLAYER.radius + 0.12, PLAYER.radius + 0.25, 32), material);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  group.add(ring);
+
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 4), material);
+  arrow.rotation.x = Math.PI;
+  arrow.position.y = 2.1;
+  group.add(arrow);
+
+  group.visible = false;
+  parent.add(group);
   return group;
 }

@@ -212,6 +212,23 @@ body {
   box-shadow: 0 0.8cqh 0 rgba(150, 100, 0, 0.8);
 }
 
+#pass-button {
+  right: 33cqh;
+  bottom: 4cqh;
+  width: 18cqh;
+  height: 18cqh;
+  border-radius: 50%;
+  background: rgba(70, 160, 255, 0.85);
+  border: 0.6cqh solid rgba(255, 255, 255, 0.7);
+  font-size: 4cqh;
+  box-shadow: 0 0.8cqh 0 rgba(20, 70, 140, 0.8);
+}
+
+#pass-button.pressed {
+  transform: translateY(0.6cqh);
+  box-shadow: 0 0.2cqh 0 rgba(20, 70, 140, 0.8);
+}
+
 #kick-button.pressed {
   transform: translateY(0.6cqh);
   box-shadow: 0 0.2cqh 0 rgba(150, 100, 0, 0.8);

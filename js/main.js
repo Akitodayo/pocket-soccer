@@ -3,8 +3,8 @@ import { createScene, updateCamera, updateTitleCamera } from './scene.js';
 import { createField, FIELD } from './field.js';
 import { createBall } from './ball.js';
 import { Player, PLAYER, separatePlayers } from './player.js';
-import { CPU, createKeeper, aimAwayFromKeeper, updateFieldCpu, updateKeeper, keeperCatch } from './cpu.js';
-import { getMove, consumeKick, consumePause, clearInput } from './input.js';
+import { CPU, createKeeper, aimAwayFromKeeper, choosePassTarget, updateTeam, keeperCatch } from './cpu.js';
+import { getMove, consumeKick, consumePass, consumePause, clearInput } from './input.js';
 import { showScreen, setRecord, setResult, onButton } from './screens.js';
 import { loadRecord, addResult } from './storage.js';
 
@@ -16,6 +16,12 @@ const MATCH = {
   endPause: 2.0,    // 試合終了から結果画面までの時間（秒）
   hurryTime: 10,    // 残りこの秒数からタイマーを赤くする
 };
+
+// 1チームのフィールド選手の人数（キーパーを除く）。3対3 なので、フィールド選手2人＋キーパー1人
+const FIELD_PLAYERS = 2;
+
+// 操作中の選手より、この距離以上ボールに近い味方がいたら、操作する選手を切り替える（行ったり来たりしないように）
+const SWITCH_MARGIN = 1.5;
 
 // 動作の軽さ：この間隔（秒）ごとに平均のコマ時間を調べ、遅ければ描画解像度を下げる
 const PERFORMANCE = { checkEvery: 2, slowFrame: 1 / 45 };
@@ -30,12 +36,45 @@ const { renderer, scene, camera, lowerResolution } = createScene(container);
 createField(scene);
 const ball = createBall(scene);
 
+// チーム：フィールド選手は自分の陣地に左右へ並べる。options は選手ごとの設定（速さなど）
+function createTeam(attackDir, color, keeperColor, options) {
+  const players = [];
+  for (let i = 0; i < FIELD_PLAYERS; i++) {
+    const z = (i - (FIELD_PLAYERS - 1) / 2) * 6;
+    players.push(new Player(scene, { color, x: -attackDir * 6, z, attackDir, ...options }));
+  }
+  const keeper = createKeeper(scene, { color: keeperColor, attackDir });
+  return { attackDir, players, keeper, chaser: null };
+}
+
 // 自分のチーム（青）は右へ、相手（赤）は左へ攻める
-const blue = new Player(scene, { color: 0x2f6fe0, x: -5, z: 0, attackDir: 1, controlled: true });
-const red = new Player(scene, { color: 0xd8403a, x: 5, z: 0, attackDir: -1, speed: PLAYER.speed * CPU.speedRate });
-const blueKeeper = createKeeper(scene, { color: 0x1d3f8a, attackDir: 1 });
-const redKeeper = createKeeper(scene, { color: 0x8c201c, attackDir: -1 });
-const players = [blue, red, blueKeeper, redKeeper];
+const blueTeam = createTeam(1, 0x2f6fe0, 0x1d3f8a, { marker: true });
+const redTeam = createTeam(-1, 0xd8403a, 0x8c201c, { speed: PLAYER.speed * CPU.speedRate });
+const fieldPlayers = [...blueTeam.players, ...redTeam.players];
+const players = [...fieldPlayers, blueTeam.keeper, redTeam.keeper];
+
+// いま操作している選手（青のフィールド選手のだれか）
+let controlled = blueTeam.players[0];
+
+function setControlled(player) {
+  if (player === controlled) return;
+  controlled.setControlled(false);
+  controlled = player;
+  controlled.setControlled(true);
+}
+
+// 操作する選手を自動で切り替える。ボールを持っている選手、パスの受け手、ボールにいちばん近い選手の順に選ぶ
+function updateControl() {
+  const team = blueTeam.players;
+  if (team.includes(ball.owner)) return setControlled(ball.owner);
+  if (team.includes(ball.passTarget)) return setControlled(ball.passTarget);
+  if (ball.owner === controlled) return;
+  let nearest = controlled;
+  for (const p of team) {
+    if (p.distanceTo(ball.position) < nearest.distanceTo(ball.position)) nearest = p;
+  }
+  if (nearest.distanceTo(ball.position) < controlled.distanceTo(ball.position) - SWITCH_MARGIN) setControlled(nearest);
+}
 
 // 右のゴール（x>0）に入れば青の得点、左なら赤の得点
 const TEAM_BY_GOAL = { 1: 'blue', '-1': 'red' };
@@ -83,7 +122,7 @@ function startMatch() {
   match.score.red = 0;
   hud.banner.hidden = true;
   kickoff('blue');
-  updateCamera(camera, cameraTarget(), blue.attackDir, 0, true);
+  updateCamera(camera, cameraTarget(), blueTeam.attackDir, 0, true);
   updateHud();
 }
 
@@ -127,10 +166,14 @@ portrait.addEventListener('change', () => {
 // ボールを中央に置き、kickingTeam の選手がボールのすぐ後ろから始める
 function kickoff(kickingTeam) {
   ball.reset();
-  blue.reset(kickingTeam === 'blue');
-  red.reset(kickingTeam === 'red');
-  blueKeeper.reset();
-  redKeeper.reset();
+  for (const [team, name] of [[blueTeam, 'blue'], [redTeam, 'red']]) {
+    team.players.forEach((p, i) => p.reset(kickingTeam === name && i === 0));
+    team.keeper.reset();
+    team.chaser = null;
+  }
+  controlled.setControlled(false);
+  controlled = blueTeam.players[0];
+  controlled.setControlled(true);
   match.phase = 'playing';
   // 相手（青）のキックオフのときは、CPU は少し待ってから動き出す
   match.cpuWait = kickingTeam === 'blue' ? CPU.kickoffWait : 0;
@@ -173,7 +216,17 @@ function updateHud() {
 // 画面から見た向きを、ピッチ上の向きに直す。カメラは攻める方向を向いているので、
 // 画面の奥が攻める方向（x）、画面の右がそこから右手（z）になる
 function toFieldMove({ right, forward }) {
-  return { x: forward * blue.attackDir, z: right * blue.attackDir };
+  return { x: forward * blueTeam.attackDir, z: right * blueTeam.attackDir };
+}
+
+// パスの受け手になった選手は、スティックを倒していなければ自動でボールへ走る
+function autoReceive(move) {
+  if (ball.passTarget !== controlled || Math.hypot(move.x, move.z) > 0.1) return move;
+  const dx = ball.position.x + ball.velocity.x * 0.3 - controlled.position.x;
+  const dz = ball.position.z + ball.velocity.z * 0.3 - controlled.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 0.3) return STOP;
+  return { x: dx / dist, z: dz / dist };
 }
 
 const STOP = { x: 0, z: 0 };
@@ -181,20 +234,25 @@ const STOP = { x: 0, z: 0 };
 // 1コマ分、試合を進める
 function step(dt) {
   if (match.phase === 'playing') {
-    blue.update(dt, toFieldMove(getMove()));
-    if (consumeKick()) blue.tryKick(ball, aimAwayFromKeeper(redKeeper));
+    updateControl();
+    const move = toFieldMove(getMove());
+    controlled.update(dt, autoReceive(move));
+    if (consumeKick()) controlled.tryKick(ball, aimAwayFromKeeper(redTeam.keeper));
+    if (consumePass()) {
+      const mate = choosePassTarget(controlled, blueTeam, move);
+      if (mate) controlled.passTo(ball, mate);
+    }
+    updateTeam(dt, blueTeam, ball, redTeam, { controlled });
     match.cpuWait = Math.max(0, match.cpuWait - dt);
-    if (match.cpuWait > 0) red.update(dt, STOP);
-    else updateFieldCpu(dt, red, ball, blueKeeper);
-    updateKeeper(dt, blueKeeper, ball, blue, red);
-    updateKeeper(dt, redKeeper, ball, red, blue);
+    updateTeam(dt, redTeam, ball, blueTeam, { wait: match.cpuWait > 0 });
     separatePlayers(players);
 
     ball.update(dt);
-    keeperCatch(dt, blueKeeper, ball);
-    keeperCatch(dt, redKeeper, ball);
-    blue.keepBall(ball, dt);
-    red.keepBall(ball, dt);
+    keeperCatch(dt, blueTeam.keeper, ball);
+    keeperCatch(dt, redTeam.keeper, ball);
+    // こぼれ球は、ボールに近い選手から順に触れる
+    fieldPlayers.sort((a, b) => a.distanceTo(ball.position) - b.distanceTo(ball.position));
+    for (const p of fieldPlayers) p.keepBall(ball, dt);
 
     const side = ball.goalSide();
     if (side !== 0) {
@@ -208,6 +266,7 @@ function step(dt) {
     for (const player of players) player.update(dt, STOP);
     ball.update(dt);
     consumeKick();
+    consumePass();
 
     match.phaseTimer -= dt;
     if (match.phase === 'goal') {
@@ -224,12 +283,13 @@ function step(dt) {
 // カメラが追う点。ふだんは自分の選手の後ろだが、ボールが自分より後ろ（自陣側）にあるときは
 // ボールも映るようにさらに下がる。自分が攻めるゴールに入ったときは、少しゴールに寄る
 function cameraTarget() {
-  const dir = blue.attackDir;
+  const dir = blueTeam.attackDir;
   if (match.phase === 'goal' && match.goalSide === dir) {
     return { x: dir * (FIELD.length / 2 - 4), z: ball.position.z * 0.5 };
   }
-  const x = Math.max(-FIELD.length / 2 + 3, Math.min(blue.position.x * dir, ball.position.x * dir - 2)) * dir;
-  return { x, z: blue.position.z * 0.6 + ball.position.z * 0.4 };
+  const me = controlled.position;
+  const x = Math.max(-FIELD.length / 2 + 3, Math.min(me.x * dir, ball.position.x * dir - 2)) * dir;
+  return { x, z: me.z * 0.6 + ball.position.z * 0.4 };
 }
 
 // ---- 動作の軽さ ----
@@ -253,7 +313,12 @@ if (params.has('debug')) {
       if (!app.paused) step(1 / 60);
     }
   };
-  window.game = { ball, blue, red, blueKeeper, redKeeper, match, app, advance, startMatch };
+  window.game = {
+    ball, blueTeam, redTeam, match, app, advance, startMatch,
+    get controlled() {
+      return controlled;
+    },
+  };
 }
 
 // ---- ゲームループ ----
@@ -273,7 +338,7 @@ function loop(now) {
     if (consumePause() && match.phase !== 'finished') setPaused(!app.paused);
     if (!app.paused) {
       step(dt);
-      updateCamera(camera, cameraTarget(), blue.attackDir, dt);
+      updateCamera(camera, cameraTarget(), blueTeam.attackDir, dt);
     }
   }
   watchPerformance(frameTime);

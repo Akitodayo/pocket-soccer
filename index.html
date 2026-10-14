@@ -36,6 +36,7 @@
     <div id="touch-controls">
       <div id="stick-zone"></div>
       <div id="stick"><div id="stick-knob"></div></div>
+      <button id="pass-button" class="touch-button" type="button">パス</button>
       <button id="kick-button" class="touch-button" type="button">シュート</button>
       <button id="pause-button" class="touch-button" type="button" aria-label="一時停止">
         <span></span><span></span>
@@ -45,13 +46,14 @@
     <!-- タイトル画面 -->
     <section id="title-screen" class="screen screen-title">
       <h1 class="logo">ポケット<span>サッカー</span></h1>
-      <p class="tagline">3分間でCPUより多くゴールを決めよう</p>
+      <p class="tagline">3人対3人。3分間でCPUより多くゴールを決めよう</p>
       <p class="record">
         通算 <b id="record-win">0</b>勝 <b id="record-lose">0</b>敗 <b id="record-draw">0</b>分
       </p>
       <button id="start-button" class="btn btn-primary" type="button">試合開始</button>
-      <p class="howto howto-keys">移動：矢印キー / WASD　シュート：スペース　一時停止：Esc</p>
-      <p class="howto howto-touch">移動：画面の左半分をなぞる　シュート：右下のボタン</p>
+      <p class="howto howto-keys">移動：矢印キー / WASD　シュート：スペース　パス：Z　一時停止：Esc</p>
+      <p class="howto howto-touch">移動：画面の左半分をなぞる　シュート・パス：右下のボタン</p>
+      <p class="howto">操作する選手は、ボールにいちばん近い味方に自動で切り替わります</p>
     </section>
 
     <!-- 結果画面 -->

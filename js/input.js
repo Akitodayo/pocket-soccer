@@ -1,7 +1,7 @@
 // キーボードとタッチ操作
-// 操作は「移動」と「シュート」の2つだけ（ほかに一時停止）
-//   PC   ：矢印キー / WASD で移動、スペースでシュート、Esc で一時停止
-//   スマホ：画面の左半分に触れるとスティックが出る、右下のボタンでシュート、右上のボタンで一時停止
+// 操作は「移動」「シュート」「パス」の3つだけ（ほかに一時停止）
+//   PC   ：矢印キー / WASD で移動、スペースでシュート、Z でパス、Esc で一時停止
+//   スマホ：画面の左半分に触れるとスティックが出る、右下のボタンでシュート・パス、右上のボタンで一時停止
 
 const KEYS = {
   up: ['ArrowUp', 'KeyW'],
@@ -9,12 +9,13 @@ const KEYS = {
   left: ['ArrowLeft', 'KeyA'],
   right: ['ArrowRight', 'KeyD'],
   kick: ['Space'],
+  pass: ['KeyZ'],
   pause: ['Escape'],
 };
 const USED = new Set(Object.values(KEYS).flat());
 
 const pressed = new Set();
-const queued = { kick: false, pause: false };
+const queued = { kick: false, pass: false, pause: false };
 
 window.addEventListener('keydown', (e) => {
   if (!USED.has(e.code)) return;
@@ -46,6 +47,7 @@ const zone = document.getElementById('stick-zone');
 const stick = document.getElementById('stick');
 const knob = document.getElementById('stick-knob');
 const kickButton = document.getElementById('kick-button');
+const passButton = document.getElementById('pass-button');
 const pauseButton = document.getElementById('pause-button');
 
 const STICK_RADIUS = 0.11; // スティックが動く半径（画面の高さに対する割合）
@@ -125,6 +127,7 @@ function pressButton(button, name) {
   }
 }
 pressButton(kickButton, 'kick');
+pressButton(passButton, 'pass');
 pressButton(pauseButton, 'pause');
 
 // ---- ゲームから使う関数 ----
@@ -157,6 +160,9 @@ export function getMove() {
 
 // シュート
 export const consumeKick = () => consume('kick');
+
+// パス
+export const consumePass = () => consume('pass');
 
 // 一時停止・再開
 export const consumePause = () => consume('pause');
