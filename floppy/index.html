@@ -2,113 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#0f1a24">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="ポケットサッカー">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ポケットサッカー</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- 古いブラウザ（iOS 16.4 より前など）でも下の import map が使えるようにする -->
-  <script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.8.3/dist/es-module-shims.js"></script>
-  <!-- Three.js を CDN から読み込む（ビルド作業なし） -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
-      }
-    }
-  </script>
+  <!-- ふにゃふにゃ版はトップのページに統一したので、トップへ移動する -->
+  <meta http-equiv="refresh" content="0; url=../">
+  <script>location.replace('../');</script>
 </head>
 <body>
-  <!-- 16:9 の画面枠。ウィンドウに合わせて拡大縮小する -->
-  <div id="game">
-    <!-- 得点と残り時間 -->
-    <div id="scoreboard">
-      <span class="team team-blue">白</span>
-      <span id="score-blue" class="score">0</span>
-      <span id="timer" class="timer">3:00</span>
-      <span id="score-red" class="score">0</span>
-      <span class="team team-red">黒</span>
-    </div>
-    <!-- 必殺技の演出（まわりを暗くして、集中線を出す） -->
-    <div id="special-fx"></div>
-    <!-- 必殺技の名前（スローモーションの間だけ表示） -->
-    <div id="special-name" class="special-name" hidden></div>
-    <div id="banner" class="banner" hidden>GOAL!</div>
-
-    <!-- 音のオン・オフ（BGMと効果音） -->
-    <button id="sound-button" class="sound-button" type="button" aria-label="音のオン・オフ">♪</button>
-
-    <!-- スマホの操作（タッチできる端末の試合中だけ表示） -->
-    <div id="touch-controls">
-      <div id="stick-zone"></div>
-      <div id="stick"><div id="stick-knob"></div></div>
-      <button id="pass-button" class="touch-button" type="button">パス</button>
-      <button id="kick-button" class="touch-button" type="button">シュート</button>
-      <button id="pause-button" class="touch-button" type="button" aria-label="一時停止">
-        <span></span><span></span>
-      </button>
-    </div>
-
-    <!-- タイトル画面 -->
-    <section id="title-screen" class="screen screen-title">
-      <h1 class="logo">ポケット<span>サッカー</span></h1>
-      <p class="tagline">3人対3人。3分間でCPUより多くゴールを決めよう</p>
-      <p class="record">
-        通算 <b id="record-win">0</b>勝 <b id="record-lose">0</b>敗 <b id="record-draw">0</b>分
-      </p>
-      <button id="start-button" class="btn btn-primary" type="button">試合開始</button>
-      <p class="howto howto-keys">移動：矢印キー / WASD　シュート：スペース　パス：Z　一時停止：Esc</p>
-      <p class="howto howto-touch">移動：画面の左半分をなぞる　シュート・パス：右下のボタン</p>
-      <p class="howto">シュートは足元の矢印の向きに飛ぶ　守備中はパスを押し続けてプレス</p>
-      <p class="howto">操作する選手は、ボールにいちばん近い味方に自動で切り替わります</p>
-    </section>
-
-    <!-- 結果画面 -->
-    <section id="result-screen" class="screen" hidden>
-      <p id="result-label" class="result-label">勝ち！</p>
-      <p class="final-score">
-        <span class="team team-blue">白</span>
-        <b id="final-blue">0</b><i>-</i><b id="final-red">0</b>
-        <span class="team team-red">黒</span>
-      </p>
-      <div class="buttons">
-        <button id="again-button" class="btn btn-primary" type="button">もう一度</button>
-        <button id="title-button" class="btn" type="button">タイトルへ</button>
-      </div>
-    </section>
-
-    <!-- 一時停止 -->
-    <section id="pause-screen" class="screen" hidden>
-      <p class="screen-heading">一時停止中</p>
-      <div class="buttons">
-        <button id="resume-button" class="btn btn-primary" type="button">再開</button>
-        <button id="quit-button" class="btn" type="button">タイトルへ</button>
-      </div>
-    </section>
-  </div>
-
-  <!-- ゲームを読み込めなかったときの案内（読み込めたら出さない） -->
-  <div id="load-error" hidden>
-    <p class="load-error-title">ゲームを読み込めませんでした</p>
-    <p>通信のよい場所で、ページを読み込み直してください。</p>
-    <p>ブラウザが古いと遊べないことがあります（iPhone は iOS 16.4 以降、Android は最新の Chrome がおすすめ）。</p>
-    <p id="load-error-detail" class="load-error-detail"></p>
-  </div>
-
-  <script type="module" src="js/main.js"></script>
-  <script>
-    // 8秒たってもゲームが始まらなければ、理由を表示する
-    window.addEventListener('error', (e) => {
-      window.__loadError = e.message;
-    });
-    setTimeout(() => {
-      if (window.__gameReady) return;
-      document.getElementById('load-error-detail').textContent = window.__loadError || '';
-      document.getElementById('load-error').hidden = false;
-    }, 8000);
-  </script>
+  <p><a href="../">ポケットサッカーはこちら</a></p>
 </body>
 </html>

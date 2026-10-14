@@ -1,7 +1,7 @@
 // CPUの判断（自動で動く選手とキーパー）
 // チームは { attackDir, players（フィールド選手の配列）, keeper } の形で扱う
 import { FIELD, GOAL } from './field.js';
-import { Player, PLAYER } from './player.js';
+import { Player, PLAYER, requestSpecial } from './player.js';
 
 // CPUの強さの調整用の数値。ここを変えれば強さを調整できる
 export const CPU = {
@@ -37,20 +37,19 @@ export const CPU = {
   passMaxSpeed: 20,       // キーパーのパスの速さの上限
   receiveDepth: 8,        // 味方キーパーがボールを持ったとき、自分のゴールからどれだけ前でパスを待つか
   aimSpread: 0.5,         // シュートの狙いのばらつき
+  godHandDistance: 7,     // 枠へのシュートがこの距離まで迫ったら、必殺技「神ハンド」のくじを引く
 };
 
 const STOP = { x: 0, z: 0 };
 
 // キーパーを作る。attackDir はそのチームが攻める向き（守るゴールはその反対側）
-export function createKeeper(scene, { kit, attackDir, look = 0 }) {
+export function createKeeper(scene, { kit, attackDir }) {
   const lineX = -attackDir * FIELD.length / 2;
   const nearX = lineX + attackDir * 0.6;
   const farX = lineX + attackDir * (FIELD.goalAreaDepth + 1.2);
   const halfZ = FIELD.goalAreaWidth / 2;
   return new Player(scene, {
     kit,
-    number: 1,
-    look,
     attackDir,
     keeper: true,
     x: lineX + attackDir * 1.0,
@@ -108,9 +107,12 @@ function openness(player, opponents) {
 function pickChaser(team, ball) {
   if (belongsTo(ball.owner, team) && !ball.owner.keeper) return (team.chaser = ball.owner);
   if (ball.passTarget && team.players.includes(ball.passTarget)) return (team.chaser = ball.passTarget);
-  const nearest = nearestTo(team.players, ball.position);
+  // へたれている選手はボールを追えない
+  const up = team.players.filter((p) => p.isUp);
+  if (up.length === 0) return team.chaser;
+  const nearest = nearestTo(up, ball.position);
   const current = team.chaser;
-  if (!current || !team.players.includes(current)
+  if (!current || !current.isUp || !team.players.includes(current)
     || nearest.distanceTo(ball.position) < current.distanceTo(ball.position) - CPU.chaserMargin) {
     team.chaser = nearest;
   }
@@ -187,7 +189,7 @@ function findOpenMate(me, team, opponents) {
   let best = null;
   let bestScore = -Infinity;
   for (const mate of team.players) {
-    if (mate === me) continue;
+    if (mate === me || !mate.isUp) continue;
     const open = openness(mate, opponents);
     const forward = (mate.position.x - me.position.x) * me.attackDir;
     if (open < CPU.openRange || forward < -4) continue;
@@ -268,7 +270,7 @@ export function choosePassTarget(passer, team, dir) {
   let best = null;
   let bestScore = Infinity;
   for (const mate of [...team.players, team.keeper]) {
-    if (mate === passer) continue;
+    if (mate === passer || !mate.isUp) continue;
     const vx = mate.position.x - passer.position.x;
     const vz = mate.position.z - passer.position.z;
     const dist = Math.hypot(vx, vz) || 1;
@@ -307,6 +309,12 @@ function updateKeeper(dt, keeper, ball, team, opponents) {
       // シュートが飛んできたら、ボールが自分の前を通る位置を予測して飛びつく
       const time = Math.max(0, (ball.position.x - keeper.position.x) * out) / towardGoal;
       const z = ball.position.z + ball.velocity.z * time;
+      // 枠に向かうシュートが迫ったら、1本につき1回だけ「神ハンド」のくじを引く
+      const onTarget = Math.abs(ball.position.z + ball.velocity.z * (ballDepth / towardGoal)) < zLimit;
+      if (onTarget && keeper.godHandShot !== ball.shotId && keeper.distanceTo(ball.position) < CPU.godHandDistance) {
+        keeper.godHandShot = ball.shotId;
+        if (requestSpecial('godhand', keeper)) return;
+      }
       keeper.update(dt, moveToward(keeper, { x: keeper.position.x, z: Math.max(-zLimit, Math.min(zLimit, z)) }, 0.2), {
         speed: CPU.keeperDiveSpeed,
         instant: true,
@@ -332,8 +340,10 @@ function updateKeeper(dt, keeper, ball, team, opponents) {
 
 // いちばんフリーな味方の少し先へ、距離に合わせた強さで浮き球のパスを出す
 function keeperPass(keeper, ball, team, opponents) {
-  let mate = team.players[0];
-  for (const p of team.players) {
+  const up = team.players.filter((p) => p.isUp);
+  if (up.length === 0) return; // 味方が全員へたれていたら、起き上がるまで待つ
+  let mate = up[0];
+  for (const p of up) {
     if (openness(p, opponents) > openness(mate, opponents)) mate = p;
   }
   const targetX = mate.position.x + mate.velocity.x * PLAYER.passLead;
@@ -358,9 +368,10 @@ function saveChance(keeper, ball) {
 
 // キーパーがボールをつかむ。速いシュートは saveChance の確率でしか止められない
 export function keeperCatch(dt, keeper, ball) {
-  let allowed = true;
+  // 炎トルネードは止められない（触れるとゴールまで吹っ飛ぶ。checkBallHits）
+  let allowed = !ball.isFire;
   // 味方からのバックパス（自分が受け手）はシュート扱いせず、必ず受ける
-  if (!ball.owner && ball.speed > CPU.shotSpeed && ball.passTarget !== keeper) {
+  if (allowed && !ball.owner && ball.speed > CPU.shotSpeed && ball.passTarget !== keeper) {
     if (keeper.judgedShot !== ball.shotId && keeper.distanceTo(ball.position) < CPU.keeperReach) {
       keeper.judgedShot = ball.shotId;
       keeper.saveOk = Math.random() < saveChance(keeper, ball);

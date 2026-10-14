@@ -24,6 +24,16 @@ export function updateCamera(camera, target, attackDir, dt, snap = false) {
   camera.lookAt(camera.position.x + attackDir * (CAMERA.back + CAMERA.lookAhead), CAMERA.lookHeight, camera.position.z);
 }
 
+// 必殺技の演出：その選手だけを近くから、まわりを回り込みながら映す（アニメの見せ場のカット）
+// distance はカメラまでの距離、height はカメラの高さ（選手の足元から）
+export function updateCloseUpCamera(camera, center, angle, dt, distance = 3.6, height = 1.2) {
+  const t = 1 - Math.exp(-8 * dt);
+  camera.position.x += (center.x + Math.sin(angle) * distance - camera.position.x) * t;
+  camera.position.y += (center.y + height - camera.position.y) * t;
+  camera.position.z += (center.z + Math.cos(angle) * distance - camera.position.z) * t;
+  camera.lookAt(center.x, center.y + 0.8, center.z);
+}
+
 // タイトル画面では、ピッチの上をゆっくり回りながら映す
 export function updateTitleCamera(camera, seconds) {
   const angle = seconds * 0.08;

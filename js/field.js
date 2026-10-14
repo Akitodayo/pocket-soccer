@@ -28,10 +28,105 @@ export function createField(scene) {
   group.add(createPitch());
   group.add(createLines());
   group.add(createBoards());
-  group.add(createGoal(-1));
-  group.add(createGoal(1));
+  for (const side of [-1, 1]) {
+    const goal = createGoal(side);
+    group.add(goal);
+    registerGoal(side, goal);
+  }
   scene.add(group);
   return group;
+}
+
+// ---- ゴールが吹っ飛んで直る（必殺技のシュートが決まったとき） ----
+
+const GOAL_BREAK = {
+  gravity: 20,      // 飛び散った部品にかかる重力
+  restoreTime: 0.5, // 元の位置へ飛んで戻るのにかける時間（秒）
+};
+
+// side（-1 が左、1 が右）ごとに、部品と元の位置を覚えておく
+const goals = new Map();
+
+function registerGoal(side, group) {
+  const pieces = group.children.map((obj) => ({
+    obj,
+    home: obj.position.clone(),
+    homeRot: obj.rotation.clone(),
+    from: new THREE.Vector3(),
+    fromRot: new THREE.Euler(),
+    vel: new THREE.Vector3(),
+    spin: new THREE.Vector3(),
+  }));
+  goals.set(side, { pieces, state: 'ok', time: 0 });
+}
+
+// ゴールの部品を、奥・上・左右へばらばらに吹き飛ばす
+export function blowUpGoal(side) {
+  const goal = goals.get(side);
+  if (!goal) return;
+  goal.state = 'broken';
+  for (const p of goal.pieces) {
+    // ゴールの中では +x が奥（ピッチの外側）
+    p.vel.set(3 + Math.random() * 7, 5 + Math.random() * 7, (Math.random() - 0.5) * 12);
+    p.spin.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+  }
+}
+
+// 吹き飛んだゴールを元へ戻し始める。instant なら一瞬で戻す
+export function restoreGoals(instant = false) {
+  for (const goal of goals.values()) {
+    if (goal.state === 'ok') continue;
+    if (instant) {
+      for (const p of goal.pieces) {
+        p.obj.position.copy(p.home);
+        p.obj.rotation.copy(p.homeRot);
+      }
+      goal.state = 'ok';
+      continue;
+    }
+    if (goal.state === 'restoring') continue;
+    goal.state = 'restoring';
+    goal.time = 0;
+    for (const p of goal.pieces) {
+      p.from.copy(p.obj.position);
+      p.fromRot.copy(p.obj.rotation);
+    }
+  }
+}
+
+// 飛び散った部品を落とし、直している途中なら元の位置へ近づける
+export function updateGoals(dt) {
+  for (const goal of goals.values()) {
+    if (goal.state === 'broken') {
+      for (const p of goal.pieces) {
+        p.vel.y -= GOAL_BREAK.gravity * dt;
+        p.obj.position.addScaledVector(p.vel, dt);
+        p.obj.rotation.x += p.spin.x * dt;
+        p.obj.rotation.y += p.spin.y * dt;
+        p.obj.rotation.z += p.spin.z * dt;
+        // 地面に落ちたら転がって止まる
+        if (p.obj.position.y < 0.1) {
+          p.obj.position.y = 0.1;
+          p.vel.multiplyScalar(0.5);
+          p.vel.y = Math.abs(p.vel.y) * 0.3;
+          p.spin.multiplyScalar(0.6);
+        }
+      }
+    } else if (goal.state === 'restoring') {
+      goal.time += dt / GOAL_BREAK.restoreTime;
+      const t = Math.min(1, goal.time);
+      const ease = t * t * (3 - 2 * t);
+      for (const p of goal.pieces) {
+        p.obj.position.lerpVectors(p.from, p.home, ease);
+        p.obj.rotation.set(
+          p.fromRot.x + (p.homeRot.x - p.fromRot.x) * ease,
+          p.fromRot.y + (p.homeRot.y - p.fromRot.y) * ease,
+          p.fromRot.z + (p.homeRot.z - p.fromRot.z) * ease
+        );
+      }
+      if (t >= 1) goal.state = 'ok';
+    }
+  }
 }
 
 // ピッチの外側の地面

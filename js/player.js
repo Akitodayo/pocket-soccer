@@ -1,6 +1,6 @@
 // 選手（操作・CPU共通）
 import * as THREE from 'three';
-import { FIELD } from './field.js';
+import { FIELD, GOAL } from './field.js';
 import { BALL_RADIUS } from './ball.js';
 
 // 選手の動きの調整用の数値
@@ -19,23 +19,85 @@ export const PLAYER = {
   stealDelay: 0.7,      // 相手がボールを持ってからこの秒数たつと、触れて奪える
   stealLock: 1.0,       // 奪われた側がボールに触れない時間（秒）
   pressStealDelay: 0.15, // プレス中は、相手がボールを持ってからこの秒数で奪える
-  shotAimWidth: 3.5,    // 方向を真横に倒して撃ったときに狙う、ゴールの中央からの横の距離（ポストは 3）
-  shotSpread: 0.5,      // 方向つきシュートのばらつき（ゴールライン上での最大のずれ）
   passBaseSpeed: 6,     // パスの速さ（基本）
   passSpeedPerMeter: 0.7, // 味方が遠いほど、1mにつきこれだけ強く蹴る
   passMinSpeed: 8,      // パスの速さの下限
   passMaxSpeed: 18,     // パスの速さの上限
   passLift: 0.8,        // パスの浮き上がり（ほぼ地をはうパス）
   passLead: 0.35,       // 走っている味方の、何秒先の位置へパスするか
+  knockSpeed: 6.5,      // 選手どうしがこの速さ以上でぶつかると、両方その場にへたれる
+  downTime: 1.2,        // へたれてから起き上がるまでの時間（秒）
+  getUpGrace: 1.5,      // 起き上がってからしばらくは、ぶつかってもへたれない（秒）
+  blastMinSpeed: 10,    // この速さ以上のシュートが当たると吹っ飛ぶ
+  blastPower: 9,        // 吹っ飛ぶ横の速さ
+  blastLift: 6,         // 吹っ飛ぶ上向きの速さ
+  flyGravity: 20,       // 吹っ飛んでいるときの重力
+  fireHitRange: 0.3,    // 炎トルネードのボールは、体からこれだけ離れていても巻き込む
+  fireFlightTime: 0.9,  // 炎トルネードに巻き込まれてから、ゴールに落ちるまでの時間（秒）
 };
+
+// ---- 必殺技の抽選 ----
+// 両チームのプレーを合わせた回数に対して決まった割合になるよう、技ごとに両チームで共有する
+// 「size 枚のうち hits 枚が当たり」のくじ袋から、その場面のたびに1枚引く（空になったら作り直す）
+class SpecialBag {
+  constructor(size, hits) {
+    this.size = size;
+    this.hits = hits;
+    this.cards = [];
+  }
+
+  reset() {
+    this.cards = Array.from({ length: this.size }, (_, i) => i < this.hits);
+    for (let i = this.cards.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.cards[i], this.cards[j]] = [this.cards[j], this.cards[i]];
+    }
+  }
+
+  draw() {
+    if (this.cards.length === 0) this.reset();
+    return this.cards.pop();
+  }
+}
+
+export const SPECIAL_BAGS = {
+  tornado: new SpecialBag(50, 3),  // 炎トルネード：シュート50本に3本（6%）
+  godhand: new SpecialBag(25, 2),  // 神ハンド：キーパーが枠へのシュートを受ける25回に2回（8%）
+};
+
+// くじ袋をすべて作り直す（試合開始のときに呼ぶ）
+export function resetSpecialBags() {
+  for (const bag of Object.values(SPECIAL_BAGS)) bag.reset();
+}
+
+// 必殺技を始めるときに呼ぶ関数（main.js で演出を始める。始められたら true を返す）
+let specialListener = () => false;
+export function onSpecial(listener) {
+  specialListener = listener;
+}
+
+// type の必殺技のくじを引き、当たったら演出を始める。actor は技を出す選手
+export function requestSpecial(type, actor) {
+  const bag = SPECIAL_BAGS[type];
+  if (!bag.draw()) return false;
+  if (specialListener(type, actor)) return true;
+  bag.cards.push(true); // 演出を始められなかったら、当たりを袋に戻す
+  return false;
+}
+
+// 選手がぶつかった・吹っ飛ばされたときに呼ぶ関数（main.js で効果音を鳴らす）
+let hurtListener = () => {};
+export function onPlayerHurt(listener) {
+  hurtListener = listener;
+}
 
 export class Player {
   // attackDir: 攻めるゴールの向き（1 なら右、-1 なら左）
   // speed: 走る速さ。bounds: 動ける範囲 { minX, maxX, minZ, maxZ }（省略するとピッチ全体）
   // keeper: キーパーなら true（キーパーが持ったボールは奪えない）
   // marker: true なら「操作中」の印（足元の黄色い輪と頭の上の三角）を付けられる
-  // kit: 色 { body, hands }、number: 背番号、look: 顔つきの番号
-  constructor(scene, { kit, number = 0, look = 0, x, z, attackDir, marker = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
+  // kit: 色 { body }
+  constructor(scene, { kit, x, z, attackDir, marker = false, speed = PLAYER.speed, bounds = null, keeper = false }) {
     this.home = new THREE.Vector3(x, 0, z);
     this.attackDir = attackDir;
     this.speed = speed;
@@ -45,7 +107,7 @@ export class Player {
     this.bounds = bounds ?? { minX: -maxX, maxX, minZ: -maxZ, maxZ };
     this.velocity = new THREE.Vector3();
 
-    this.model = createPlayerModel(kit, number, look, keeper);
+    this.model = createPlayerModel(kit, keeper);
     this.mesh = this.model.root;
     this.runPhase = Math.random() * Math.PI * 2;
     this.idleTime = Math.random() * 10;
@@ -67,10 +129,20 @@ export class Player {
     this.lockTimer = 0;
     this.kickAnim = 0;
     this.pressing = false; // プレス中（相手から素早く奪える）
+    // ふにゃふにゃの状態：normal（ふつう）/ flying（吹っ飛び中）/ down（へたれている）
+    this.state = 'normal';
+    this.stateTimer = 0;
+    this.grace = 0;
+    this.vy = 0;
+    this.fall = 0;
+    this.spin = 0;
+    this.free = false; // true の間は、動ける範囲の外（ゴールの中）にいてもよい
+    this.model.body.rotation.set(0, 0, 0);
     // CPU が使う記憶（cpu.js）
     this.holdTime = 0;
     this.judgedShot = -1;
     this.saveOk = false;
+    this.godHandShot = -1;
   }
 
   // move: { x, z } の向き（長さ 0〜1）
@@ -78,6 +150,14 @@ export class Player {
   update(dt, move, { speed = this.speed, instant = false } = {}) {
     this.kickTimer = Math.max(0, this.kickTimer - dt);
     this.lockTimer = Math.max(0, this.lockTimer - dt);
+    this.grace = Math.max(0, this.grace - dt);
+
+    // へたれている・吹っ飛んでいる間は、操作もCPUの判断も受け付けない
+    if (this.state !== 'normal') {
+      this.updateFallen(dt);
+      this.animate(dt);
+      return;
+    }
 
     // 目標の速さに少しずつ近づける
     const t = instant ? 1 : 1 - Math.exp(-PLAYER.accel * dt / PLAYER.speed);
@@ -97,17 +177,85 @@ export class Player {
     this.animate(dt);
   }
 
-  // 走る速さに合わせて脚と腕を動かす。蹴った直後は蹴る動きを見せる
+  // 走る速さに合わせて脚と腕を動かす。蹴った直後は蹴る動き、倒れているときはへたれた形にする
   animate(dt) {
-    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    const speed = this.state === 'normal' ? Math.hypot(this.velocity.x, this.velocity.z) : 0;
     this.runPhase += (speed / MODEL.stride) * Math.PI * 2 * dt;
     this.kickAnim = Math.max(0, this.kickAnim - dt);
     this.idleTime += dt;
+    // へたれるときはすばやく、起き上がるときはゆっくり形を戻す
+    const target = this.state === 'normal' ? 0 : 1;
+    const rate = target > this.fall ? 12 : 4;
+    this.fall += (target - this.fall) * (1 - Math.exp(-rate * dt));
     const kick = this.kickAnim > 0 ? 1 - this.kickAnim / MODEL.kickTime : -1;
-    poseModel(this.model, this.runPhase, Math.min(1, speed / 6), kick, this.idleTime);
+    poseModel(this.model, this.runPhase, Math.min(1, speed / 6), kick, this.idleTime, this.fall, this.spin);
+  }
+
+  get isUp() {
+    return this.state === 'normal';
+  }
+
+  // その場にへたれる（ボールを持っていたら手放す）
+  knockDown(ball) {
+    if (ball.owner === this) ball.owner = null;
+    this.state = 'down';
+    this.stateTimer = PLAYER.downTime;
+    this.velocity.multiplyScalar(0.2);
+  }
+
+  // ボールが当たって吹っ飛ぶ。(dirX, dirZ) は飛ばされる向き
+  blast(ball, dirX, dirZ) {
+    if (ball.owner === this) ball.owner = null;
+    this.state = 'flying';
+    this.velocity.set(dirX * PLAYER.blastPower, 0, dirZ * PLAYER.blastPower);
+    this.vy = PLAYER.blastLift;
+    this.spin = 0;
+    hurtListener('blast');
+  }
+
+  // 炎トルネードに巻き込まれて、target（ゴールの中）まで大きな弧を描いて吹っ飛ぶ
+  blastToGoal(ball, target) {
+    if (ball.owner === this) ball.owner = null;
+    const time = PLAYER.fireFlightTime;
+    this.state = 'flying';
+    this.free = true;
+    this.velocity.set((target.x - this.position.x) / time, 0, (target.z - this.position.z) / time);
+    this.vy = (PLAYER.flyGravity * time) / 2;
+    this.spin = 0;
+    hurtListener('blast');
+  }
+
+  // 吹っ飛び・へたれの動き。地面に落ちたらへたれ、時間がたつと起き上がる
+  updateFallen(dt) {
+    if (this.state === 'flying') {
+      this.position.addScaledVector(this.velocity, dt);
+      this.position.y += this.vy * dt;
+      this.vy -= PLAYER.flyGravity * dt;
+      this.spin += 9 * dt;
+      if (this.position.y <= 0) {
+        this.position.y = 0;
+        this.velocity.multiplyScalar(0.35);
+        this.state = 'down';
+        this.stateTimer = PLAYER.downTime;
+      }
+    } else {
+      // へたれたまま少し滑って止まる
+      this.velocity.multiplyScalar(Math.exp(-6 * dt));
+      this.position.addScaledVector(this.velocity, dt);
+      this.stateTimer -= dt;
+      if (this.stateTimer <= 0) {
+        this.state = 'normal';
+        this.grace = PLAYER.getUpGrace;
+        this.spin = 0;
+        this.velocity.set(0, 0, 0);
+        this.free = false; // ゴールの中から起き上がったら、動ける範囲に戻る
+      }
+    }
+    this.clampToBounds();
   }
 
   clampToBounds() {
+    if (this.free) return;
     const b = this.bounds;
     this.position.x = THREE.MathUtils.clamp(this.position.x, b.minX, b.maxX);
     this.position.z = THREE.MathUtils.clamp(this.position.z, b.minZ, b.maxZ);
@@ -126,8 +274,14 @@ export class Player {
     if (this.marker) this.marker.visible = on;
   }
 
+  // シュートの狙いの点線を出す・消す（ボールを持っているときに出す）
+  setAimVisible(on) {
+    if (this.marker) this.marker.userData.aim.visible = on;
+  }
+
   // ボールを持っている（または足元に転がっている）なら蹴れる
   canKick(ball) {
+    if (!this.isUp) return false;
     const loose = !ball.owner && this.distanceTo(ball.position) < PLAYER.controlRange && ball.position.y < 1;
     return this.kickTimer <= 0 && (this.hasBall(ball) || loose);
   }
@@ -149,17 +303,17 @@ export class Player {
 
   // シュート：ボールが足元にあれば、相手ゴールの aimZ（ゴールの横方向の位置）を狙って一定の強さで蹴る
   tryKick(ball, aimZ = 0) {
-    if (!this.canKick(ball)) return false;
-
     const goalX = this.attackDir * FIELD.length / 2;
-    this.kickToward(ball, goalX - ball.position.x, aimZ - ball.position.z, PLAYER.kickSpeed, PLAYER.kickLift);
-    return true;
+    return this.shootToward(ball, goalX - ball.position.x, aimZ - ball.position.z);
   }
 
   // 方向つきシュート：向き (dirX, dirZ) へ、シュートの強さでそのまま蹴る（枠に入るとは限らない）
+  // くじに当たると必殺技「炎トルネード」になる（演出のあと空中から蹴る）
   shootToward(ball, dirX, dirZ) {
     if (!this.canKick(ball)) return false;
+    if (requestSpecial('tornado', this)) return true;
     this.kickToward(ball, dirX, dirZ, PLAYER.kickSpeed, PLAYER.kickLift);
+    ball.markShot(this);
     return true;
   }
 
@@ -174,8 +328,10 @@ export class Player {
   // range: ボールに届く距離、maxHeight: 届く高さ、allowed: false ならボールに触れない（キーパーがシュートを止めそこねたとき）
   keepBall(ball, dt, { range = PLAYER.controlRange, maxHeight = 1, allowed = true } = {}) {
     const dist = this.distanceTo(ball.position);
-    const able = allowed && this.kickTimer <= 0 && this.lockTimer <= 0 && ball.position.y < maxHeight
-      && !ball.protectedFrom(this);
+    // 強いシュートは、フィールド選手には止められない（当たると吹っ飛ぶ。checkBallHits）
+    const blasting = !this.keeper && ball.isShot && ball.speed >= PLAYER.blastMinSpeed;
+    const able = allowed && this.isUp && !blasting && this.kickTimer <= 0 && this.lockTimer <= 0
+      && ball.position.y < maxHeight && !ball.protectedFrom(this);
 
     if (this.hasBall(ball)) {
       if (!able || dist > range * 1.6) ball.owner = null;
@@ -207,7 +363,7 @@ export class Player {
 
     // だれも持っていないボールが体に当たったら押し出す
     const minDist = PLAYER.radius + BALL_RADIUS;
-    if (allowed && !ball.owner && ball.position.y < 1 && dist < minDist && dist > 0.0001) {
+    if (allowed && this.isUp && !blasting && !ball.owner && ball.position.y < 1 && dist < minDist && dist > 0.0001) {
       const nx = (ball.position.x - this.position.x) / dist;
       const nz = (ball.position.z - this.position.z) / dist;
       ball.position.x = this.position.x + nx * minDist;
@@ -216,30 +372,69 @@ export class Player {
   }
 }
 
-// 選手どうしが重ならないように押し離す
-export function separatePlayers(players) {
+// 選手どうしが重ならないように押し離す。勢いよくぶつかったら、両方その場にへたれる
+export function separatePlayers(players, ball) {
   const minDist = PLAYER.radius * 2;
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
-      const a = players[i].position;
-      const b = players[j].position;
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
+      const a = players[i];
+      const b = players[j];
+      if (!a.isUp || !b.isUp) continue;
+      const dx = b.position.x - a.position.x;
+      const dz = b.position.z - a.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist >= minDist || dist < 0.0001) continue;
+
+      const hit = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.z - b.velocity.z);
+      if (hit > PLAYER.knockSpeed && a.grace <= 0 && b.grace <= 0) {
+        a.knockDown(ball);
+        b.knockDown(ball);
+        hurtListener('collide');
+      }
+
       const push = (minDist - dist) / 2;
-      a.x -= (dx / dist) * push;
-      a.z -= (dz / dist) * push;
-      b.x += (dx / dist) * push;
-      b.z += (dz / dist) * push;
-      players[i].clampToBounds();
-      players[j].clampToBounds();
+      a.position.x -= (dx / dist) * push;
+      a.position.z -= (dz / dist) * push;
+      b.position.x += (dx / dist) * push;
+      b.position.z += (dz / dist) * push;
+      a.clampToBounds();
+      b.clampToBounds();
     }
   }
 }
 
+// 強いシュートが選手に当たったら、その選手は吹っ飛び、ボールは跳ね返る（蹴った本人とキーパーは除く）。
+// 炎トルネードのボールは、触れた選手もキーパーもゴールまで吹っ飛ばし、ボールはそのまま進む
+export function checkBallHits(ball, players) {
+  if (ball.isFire) {
+    const dir = Math.sign(ball.velocity.x) || 1;
+    const zLimit = GOAL.width / 2 - 0.6;
+    const target = {
+      x: dir * (FIELD.length / 2 + GOAL.depth * 0.55),
+      z: Math.max(-zLimit, Math.min(zLimit, ball.position.z)),
+    };
+    for (const p of players) {
+      if (!p.isUp || p === ball.lastKicker || ball.position.y > 2) continue;
+      if (p.distanceTo(ball.position) < PLAYER.radius + BALL_RADIUS + PLAYER.fireHitRange) p.blastToGoal(ball, target);
+    }
+    return;
+  }
+  if (!ball.isShot || ball.speed < PLAYER.blastMinSpeed || ball.position.y > 1.5) return;
+  for (const p of players) {
+    if (p.keeper || !p.isUp || p === ball.lastKicker) continue;
+    if (p.distanceTo(ball.position) > PLAYER.radius + BALL_RADIUS) continue;
+    const speed = ball.speed;
+    p.blast(ball, ball.velocity.x / speed, ball.velocity.z / speed);
+    ball.velocity.x *= -0.35;
+    ball.velocity.z *= -0.35;
+    ball.velocity.y = Math.max(ball.velocity.y, 2);
+    ball.isShot = false;
+    return;
+  }
+}
+
 // ---- キャラクターの3Dモデル ----
-// 頭と体がひとつながりの、丸くてやわらかい形。足の裏が y=0、体の正面は +z、右手側は -x
+// 頭と体がひとつながりの、丸くてやわらかい形（顔などの細かいパーツはなし）。足の裏が y=0、体の正面は +z、右手側は -x
 
 const MODEL = {
   hipHeight: 0.3,  // 脚の付け根の高さ
@@ -260,48 +455,20 @@ const GEOMETRY = {
   arm: new THREE.CapsuleGeometry(0.085, 0.24, 6, 10),
   hand: new THREE.SphereGeometry(0.1, 12, 10),
   glove: new THREE.SphereGeometry(0.14, 12, 10),
-  eye: new THREE.SphereGeometry(0.075, 14, 10),
-  pupil: new THREE.SphereGeometry(0.04, 10, 8),
-  shine: new THREE.SphereGeometry(0.014, 6, 4),
-  smile: new THREE.TorusGeometry(0.06, 0.013, 6, 16, Math.PI),
-  cheek: new THREE.CircleGeometry(0.045, 14),
-  number: new THREE.PlaneGeometry(0.26, 0.26),
 };
 
-const CHEEK_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xff8a9a, transparent: true, opacity: 0.55 });
-
-function part(geometry, color, x, y, z, shadow = false) {
+function part(geometry, color, x, y, z) {
   const mesh = new THREE.Mesh(geometry, material(color));
   mesh.position.set(x, y, z);
-  mesh.castShadow = shadow;
+  mesh.castShadow = true;
   return mesh;
 }
 
-// 背番号の絵（白い数字を透明な板に描く）
-const numberTextures = new Map();
-function numberTexture(number) {
-  if (!numberTextures.has(number)) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 50px Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(number), 32, 35);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    numberTextures.set(number, texture);
-  }
-  return numberTextures.get(number);
-}
-
-// キャラクターを作る。kit は色 { body, hands }、look は顔つきの番号（目の大きさが少し変わる）
-function createPlayerModel(kit, number, look, keeper) {
+// キャラクターを作る。kit は色 { body }。キーパーは手が大きい
+function createPlayerModel(kit, keeper) {
   const root = new THREE.Group();
 
-  // 腰から上（上下に弾む・左右に揺れる）
+  // 腰から上（上下に弾む・左右に揺れる・吹っ飛ぶと回る）
   const body = new THREE.Group();
   body.position.y = MODEL.hipHeight;
   root.add(body);
@@ -309,42 +476,16 @@ function createPlayerModel(kit, number, look, keeper) {
   // 伸び縮みする胴。足元を中心に縮むよう、メッシュを上にずらして入れる
   const trunk = new THREE.Group();
   body.add(trunk);
-  trunk.add(part(GEOMETRY.trunk, kit.body, 0, 0.6, 0, true));
+  trunk.add(part(GEOMETRY.trunk, kit.body, 0, 0.6, 0));
 
-  // 顔：大きな目（白目・黒目・光）、にっこり口、ほっぺ
-  const eyeScale = 1 + (look % 3) * 0.08;
-  for (const side of [1, -1]) {
-    const eye = part(GEOMETRY.eye, 0xffffff, side * 0.115, 1.0, 0.27);
-    eye.scale.setScalar(eyeScale);
-    trunk.add(eye);
-    trunk.add(part(GEOMETRY.pupil, 0x1d1d24, side * 0.11, 1.0, 0.335));
-    trunk.add(part(GEOMETRY.shine, 0xffffff, side * 0.1 + 0.012, 1.018, 0.372));
-    const cheek = new THREE.Mesh(GEOMETRY.cheek, CHEEK_MATERIAL);
-    cheek.position.set(side * 0.2, 0.88, 0.255);
-    cheek.rotation.y = side * 0.62;
-    trunk.add(cheek);
-  }
-  const smile = part(GEOMETRY.smile, 0x5a2a2a, 0, 0.9, 0.315);
-  smile.rotation.z = Math.PI;
-  trunk.add(smile);
-
-  // 背番号
-  const back = new THREE.Mesh(
-    GEOMETRY.number,
-    new THREE.MeshBasicMaterial({ map: numberTexture(number), transparent: true })
-  );
-  back.position.set(0, 0.62, -0.335);
-  back.rotation.y = Math.PI;
-  trunk.add(back);
-
-  // 腕：肩から垂れる丸い腕と、丸い手（キーパーは大きな手袋）
+  // 腕：肩から垂れる丸い腕と、丸い手（キーパーは大きな手）
   const arms = {};
   for (const side of [1, -1]) {
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.3, 0.72, 0);
     trunk.add(shoulder);
-    shoulder.add(part(GEOMETRY.arm, kit.body, 0, -0.17, 0, true));
-    shoulder.add(part(keeper ? GEOMETRY.glove : GEOMETRY.hand, kit.hands, 0, -0.36, 0, true));
+    shoulder.add(part(GEOMETRY.arm, kit.body, 0, -0.17, 0));
+    shoulder.add(part(keeper ? GEOMETRY.glove : GEOMETRY.hand, kit.body, 0, -0.36, 0));
     arms[side > 0 ? 'left' : 'right'] = shoulder;
   }
 
@@ -354,7 +495,7 @@ function createPlayerModel(kit, number, look, keeper) {
     const leg = new THREE.Group();
     leg.position.set(side * 0.15, 0.08, 0);
     body.add(leg);
-    leg.add(part(GEOMETRY.leg, kit.body, 0, -0.17, 0.02, true));
+    leg.add(part(GEOMETRY.leg, kit.body, 0, -0.17, 0.02));
     legs[side > 0 ? 'left' : 'right'] = leg;
   }
 
@@ -362,8 +503,9 @@ function createPlayerModel(kit, number, look, keeper) {
 }
 
 // ふにゃふにゃした動きを付ける。phase は走りの進み具合、amount は走りの強さ（0〜1）、
-// kick は蹴る動きの進み具合（0〜1、蹴っていなければ -1）、time は呼吸の揺れに使う時間
-function poseModel(model, phase, amount, kick, time) {
+// kick は蹴る動きの進み具合（0〜1、蹴っていなければ -1）、time は呼吸の揺れに使う時間、
+// fall はへたれ具合（0〜1）、spin は吹っ飛んでいるときの回転
+function poseModel(model, phase, amount, kick, time, fall, spin) {
   const { body, trunk, legs, arms } = model;
   const s = Math.sin(phase);
   const idle = 1 - amount;
@@ -405,10 +547,24 @@ function poseModel(model, phase, amount, kick, time) {
     squash = 1 + 0.08 * lift;
   }
 
+  // へたれる：上下にぺしゃんとつぶれて横に広がり、手足を投げ出す。起き上がりかけはぷるぷる震える
+  if (fall > 0.001) {
+    const wobble = Math.sin(time * 22) * 0.08 * fall * (1 - fall) * 4;
+    squash = squash * (1 - fall) + (0.42 + wobble) * fall;
+    legs.left.rotation.x = legs.left.rotation.x * (1 - fall) - 1.3 * fall;
+    legs.right.rotation.x = legs.right.rotation.x * (1 - fall) - 1.3 * fall;
+    arms.left.rotation.z = arms.left.rotation.z * (1 - fall) + 1.5 * fall;
+    arms.right.rotation.z = arms.right.rotation.z * (1 - fall) - 1.5 * fall;
+    body.position.y = body.position.y * (1 - fall) + 0.08 * fall;
+  }
+
+  // 吹っ飛んでいる間はくるくる回る
+  if (spin > 0) body.rotation.x = -spin;
+
   trunk.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
 }
 
-// 「操作中」の印：足元の黄色い輪と、頭の上の下向きの三角（遠くからでもわかるように）
+// 「操作中」の印：足元の黄色い輪と進行方向の矢印、頭の上の下向きの三角（遠くからでもわかるように）
 function createMarker(parent) {
   const group = new THREE.Group();
   const material = new THREE.MeshBasicMaterial({ color: 0xffe14a });
@@ -422,6 +578,43 @@ function createMarker(parent) {
   arrow.rotation.x = Math.PI;
   arrow.position.y = 1.95;
   group.add(arrow);
+
+  // 足元の進行方向の矢印（体の正面 +z を指す。シュートはこの向きに飛ぶ）
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.1, 0.65);
+  shape.lineTo(0.1, 0.65);
+  shape.lineTo(0.1, 1.35);
+  shape.lineTo(0.32, 1.35);
+  shape.lineTo(0, 1.9);
+  shape.lineTo(-0.32, 1.35);
+  shape.lineTo(-0.1, 1.35);
+  shape.closePath();
+  const pointer = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({ color: 0xffe14a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })
+  );
+  pointer.rotation.x = Math.PI / 2; // 平らに寝かせ、形の上向き（y）を体の正面（+z）へ
+  pointer.position.y = 0.03;
+  group.add(pointer);
+
+  // ボールを持っているときだけ出す、シュートの狙いの点線（矢印の先へ、だんだん薄くなる）
+  const aim = new THREE.Group();
+  const dash = new THREE.PlaneGeometry(0.12, 0.45);
+  for (let i = 0; i < 7; i++) {
+    const piece = new THREE.Mesh(dash, new THREE.MeshBasicMaterial({
+      color: 0xffe14a,
+      transparent: true,
+      opacity: 0.75 * (1 - i / 7),
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }));
+    piece.rotation.x = Math.PI / 2;
+    piece.position.set(0, 0.03, 2.3 + i * 0.75);
+    aim.add(piece);
+  }
+  aim.visible = false;
+  group.add(aim);
+  group.userData.aim = aim;
 
   group.visible = false;
   parent.add(group);

@@ -18,6 +18,14 @@ const BALL = {
   airDrag: 0.1,       // 空中での減速
 };
 
+// 炎トルネードのボールの見た目
+const FIRE = {
+  burnOutSpeed: 8,   // ボールがこの速さより遅くなったら炎が消える
+  sparks: 96,        // 炎の粒の数（使い回す）
+  sparksPerFrame: 3, // 1コマに出す炎の粒の数
+  sparkLife: 0.35,   // 炎の粒が消えるまでの時間（秒）
+};
+
 export function createBall(scene) {
   const mesh = new THREE.Mesh(
     new THREE.IcosahedronGeometry(BALL_RADIUS, 3),
@@ -25,12 +33,87 @@ export function createBall(scene) {
   );
   mesh.castShadow = true;
   scene.add(mesh);
-  return new Ball(mesh);
+  return new Ball(mesh, new FireTrail(scene));
+}
+
+// 炎トルネードのボールの尾：丸い粒をボールの後ろに出し、オレンジから赤へ変えながら消す
+class FireTrail {
+  constructor(scene) {
+    const texture = createGlowTexture();
+    this.sparks = [];
+    for (let i = 0; i < FIRE.sparks; i++) {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: texture,
+        color: 0xffb000,
+        transparent: true,
+        depthWrite: false,
+      }));
+      sprite.visible = false;
+      scene.add(sprite);
+      this.sparks.push({ sprite, life: 0, vx: 0, vy: 0, vz: 0 });
+    }
+    this.next = 0;
+    this.yellow = new THREE.Color(0xffb000);
+    this.red = new THREE.Color(0xd41a00);
+  }
+
+  update(dt, position, burning, big = false) {
+    if (burning) {
+      const count = big ? FIRE.sparksPerFrame * 2 : FIRE.sparksPerFrame;
+      const spread = big ? 0.6 : 0.25;
+      for (let i = 0; i < count; i++) {
+        const spark = this.sparks[this.next];
+        this.next = (this.next + 1) % this.sparks.length;
+        spark.life = FIRE.sparkLife;
+        spark.big = big;
+        spark.sprite.visible = true;
+        spark.sprite.position.set(
+          position.x + (Math.random() - 0.5) * spread,
+          position.y + (Math.random() - 0.5) * spread,
+          position.z + (Math.random() - 0.5) * spread
+        );
+        spark.vx = (Math.random() - 0.5) * 0.8;
+        spark.vy = 0.8 + Math.random() * 1.2;
+        spark.vz = (Math.random() - 0.5) * 0.8;
+      }
+    }
+    for (const spark of this.sparks) {
+      if (spark.life <= 0) continue;
+      spark.life -= dt;
+      if (spark.life <= 0) {
+        spark.sprite.visible = false;
+        continue;
+      }
+      const t = 1 - spark.life / FIRE.sparkLife; // 0（出たて）→ 1（消える）
+      spark.sprite.position.x += spark.vx * dt;
+      spark.sprite.position.y += spark.vy * dt;
+      spark.sprite.position.z += spark.vz * dt;
+      spark.sprite.scale.setScalar((0.55 + t * 0.6) * (spark.big ? 1.8 : 1));
+      spark.sprite.material.color.copy(this.yellow).lerp(this.red, t);
+      spark.sprite.material.opacity = 0.9 * (1 - t);
+    }
+  }
+}
+
+// 中心が明るく、外側が透明な丸
+function createGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.4, 'rgba(255,255,255,0.6)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(canvas);
 }
 
 class Ball {
-  constructor(mesh) {
+  constructor(mesh, trail) {
     this.mesh = mesh;
+    this.trail = trail;
     this.position = mesh.position;
     this.velocity = new THREE.Vector3();
     this.owner = null;    // いまボールをキープしている選手（いなければ null）
@@ -40,6 +123,10 @@ class Ball {
     this.passTarget = null; // パスの受け手（受け手はボールへ走り、青チームなら操作もその選手に切り替わる）
     this.passTimer = 0;     // パスを出してからの時間（秒）
     this.kickoffTeam = null; // キックオフしたチームの向き。蹴り出すまで（またはセンターサークルを出るまで）相手は奪えない
+    this.isShot = false;     // シュートとして蹴られたボール（当たった選手は吹っ飛ぶ）
+    this.isFire = false;     // 燃えているボール（炎トルネード。触れた選手をゴールまで吹っ飛ばす。キーパーも止められない）
+    this.isTornado = false;  // 必殺技「炎トルネード」のボール（重力を受けずにまっすぐ飛び、ゴールを吹っ飛ばす）
+    this.lastKicker = null;  // 最後にシュートした選手（自分のシュートでは吹っ飛ばない）
     this.reset();
   }
 
@@ -52,6 +139,16 @@ class Ball {
     this.prevX = 0;
     this.passTarget = null;
     this.kickoffTeam = null;
+    this.isShot = false;
+    this.isFire = false;
+    this.isTornado = false;
+  }
+
+  // シュートとして蹴られたことを覚える（kick のあとに呼ぶ）
+  markShot(kicker, fire = false) {
+    this.isShot = true;
+    this.isFire = fire;
+    this.lastKicker = kicker;
   }
 
   // キックオフの間、ほかのチームはこのボールに触れない
@@ -69,6 +166,9 @@ class Ball {
     this.owner = player;
     this.ownerTimer = 0;
     this.passTarget = null;
+    this.isShot = false;
+    this.isFire = false;
+    this.isTornado = false;
   }
 
   // パスとして蹴る（kick のあとに受け手を覚える）
@@ -91,6 +191,9 @@ class Ball {
     this.shotFromX = this.position.x;
     this.passTarget = null;
     this.kickoffTeam = null;
+    this.isShot = false;
+    this.isFire = false;
+    this.isTornado = false;
   }
 
   update(dt) {
@@ -103,7 +206,7 @@ class Ball {
     if (this.kickoffTeam !== null && Math.hypot(p.x, p.z) > FIELD.centerCircleRadius) this.kickoffTeam = null;
     this.prevX = p.x; // 動く前の位置（ゴールの中にいたかの判定に使う）
 
-    v.y -= BALL.gravity * dt;
+    if (!this.isTornado) v.y -= BALL.gravity * dt;
     p.addScaledVector(v, dt);
 
     // 地面で跳ねる。弱い跳ねは止めて転がりに切り替える
@@ -129,6 +232,19 @@ class Ball {
 
     this.collideWalls();
     this.roll(dt);
+
+    // 炎：遅くなったら消える
+    if (this.isFire && this.speed < FIRE.burnOutSpeed) {
+      this.isFire = false;
+      this.isTornado = false;
+    }
+    this.updateEffects(dt);
+  }
+
+  // 燃えている間はボールが光り、炎の尾を引く（炎トルネードは尾が太い）
+  updateEffects(dt) {
+    this.mesh.material.emissive.setHex(this.isFire ? 0xff5a00 : 0x000000);
+    this.trail.update(dt, this.position, this.isFire, this.isTornado);
   }
 
   // ボール全体がゴールラインを越えたら、そのゴールの向き（右なら 1、左なら -1）を返す。入っていなければ 0

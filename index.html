@@ -26,13 +26,20 @@
   <div id="game">
     <!-- 得点と残り時間 -->
     <div id="scoreboard">
-      <span class="team team-blue">青</span>
+      <span class="team team-blue">白</span>
       <span id="score-blue" class="score">0</span>
       <span id="timer" class="timer">3:00</span>
       <span id="score-red" class="score">0</span>
-      <span class="team team-red">赤</span>
+      <span class="team team-red">黒</span>
     </div>
+    <!-- 必殺技の演出（まわりを暗くして、集中線を出す） -->
+    <div id="special-fx"></div>
+    <!-- 必殺技の名前（スローモーションの間だけ表示） -->
+    <div id="special-name" class="special-name" hidden></div>
     <div id="banner" class="banner" hidden>GOAL!</div>
+
+    <!-- 音のオン・オフ（BGMと効果音） -->
+    <button id="sound-button" class="sound-button" type="button" aria-label="音のオン・オフ">♪</button>
 
     <!-- スマホの操作（タッチできる端末の試合中だけ表示） -->
     <div id="touch-controls">
@@ -55,7 +62,7 @@
       <button id="start-button" class="btn btn-primary" type="button">試合開始</button>
       <p class="howto howto-keys">移動：矢印キー / WASD　シュート：スペース　パス：Z　一時停止：Esc</p>
       <p class="howto howto-touch">移動：画面の左半分をなぞる　シュート・パス：右下のボタン</p>
-      <p class="howto">方向を押しながらシュートでその向きへ　守備中はパスを押し続けてプレス</p>
+      <p class="howto">シュートは足元の矢印の向きに飛ぶ　守備中はパスを押し続けてプレス</p>
       <p class="howto">操作する選手は、ボールにいちばん近い味方に自動で切り替わります</p>
     </section>
 
@@ -63,9 +70,9 @@
     <section id="result-screen" class="screen" hidden>
       <p id="result-label" class="result-label">勝ち！</p>
       <p class="final-score">
-        <span class="team team-blue">青</span>
+        <span class="team team-blue">白</span>
         <b id="final-blue">0</b><i>-</i><b id="final-red">0</b>
-        <span class="team team-red">赤</span>
+        <span class="team team-red">黒</span>
       </p>
       <div class="buttons">
         <button id="again-button" class="btn btn-primary" type="button">もう一度</button>
