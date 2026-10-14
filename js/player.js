@@ -18,6 +18,9 @@ export const PLAYER = {
   kickoffDistance: 0.9, // キックオフのときにボールの後ろに立つ距離（すぐキープできる近さ）
   stealDelay: 0.7,      // 相手がボールを持ってからこの秒数たつと、触れて奪える
   stealLock: 1.0,       // 奪われた側がボールに触れない時間（秒）
+  pressStealDelay: 0.15, // プレス中は、相手がボールを持ってからこの秒数で奪える
+  shotAimWidth: 3.5,    // 方向を真横に倒して撃ったときに狙う、ゴールの中央からの横の距離（ポストは 3）
+  shotSpread: 0.5,      // 方向つきシュートのばらつき（ゴールライン上での最大のずれ）
   passBaseSpeed: 6,     // パスの速さ（基本）
   passSpeedPerMeter: 0.7, // 味方が遠いほど、1mにつきこれだけ強く蹴る
   passMinSpeed: 8,      // パスの速さの下限
@@ -57,6 +60,7 @@ export class Player {
     this.mesh.rotation.y = this.facing;
     this.kickTimer = 0;
     this.lockTimer = 0;
+    this.pressing = false; // プレス中（相手から素早く奪える）
     // CPU が使う記憶（cpu.js）
     this.holdTime = 0;
     this.judgedShot = -1;
@@ -134,13 +138,20 @@ export class Player {
     return true;
   }
 
+  // 方向つきシュート：向き (dirX, dirZ) へ、シュートの強さでそのまま蹴る（枠に入るとは限らない）
+  shootToward(ball, dirX, dirZ) {
+    if (!this.canKick(ball)) return false;
+    this.kickToward(ball, dirX, dirZ, PLAYER.kickSpeed, PLAYER.kickLift);
+    return true;
+  }
+
   // 向き (dirX, dirZ) へ蹴る（キーパーのクリアにも使う）
   kickToward(ball, dirX, dirZ, speed, lift) {
     ball.kick(dirX, dirZ, speed, lift);
     this.kickTimer = PLAYER.kickCooldown;
   }
 
-  // ドリブル：近くのボールを体の正面にキープする。相手が持っているボールは、少したつと触れて奪える
+  // ドリブル：近くのボールを体の正面にキープする。相手が持っているボールは、少したつと触れて奪える（プレス中はすぐ奪える）
   // range: ボールに届く距離、maxHeight: 届く高さ、allowed: false ならボールに触れない（キーパーがシュートを止めそこねたとき）
   keepBall(ball, dt, { range = PLAYER.controlRange, maxHeight = 1, allowed = true } = {}) {
     const dist = this.distanceTo(ball.position);
@@ -152,7 +163,8 @@ export class Player {
       const owner = ball.owner;
       if (!owner) {
         ball.setOwner(this);
-      } else if (owner.attackDir !== this.attackDir && !owner.keeper && ball.ownerTimer > PLAYER.stealDelay) {
+      } else if (owner.attackDir !== this.attackDir && !owner.keeper
+        && ball.ownerTimer > (this.pressing ? PLAYER.pressStealDelay : PLAYER.stealDelay)) {
         owner.lockTimer = PLAYER.stealLock;
         ball.setOwner(this);
       }

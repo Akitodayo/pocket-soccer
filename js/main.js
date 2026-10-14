@@ -4,7 +4,7 @@ import { createField, FIELD } from './field.js';
 import { createBall } from './ball.js';
 import { Player, PLAYER, separatePlayers } from './player.js';
 import { CPU, createKeeper, aimAwayFromKeeper, choosePassTarget, updateTeam, keeperCatch } from './cpu.js';
-import { getMove, consumeKick, consumePass, consumePause, clearInput } from './input.js';
+import { getMove, consumeKick, consumePass, isPassHeld, consumePause, clearInput } from './input.js';
 import { showScreen, setRecord, setResult, onButton } from './screens.js';
 import { loadRecord, addResult } from './storage.js';
 
@@ -219,6 +219,33 @@ function toFieldMove({ right, forward }) {
   return { x: forward * blueTeam.attackDir, z: right * blueTeam.attackDir };
 }
 
+// 青チームがボールを持っているか
+function blueHasBall() {
+  return !!ball.owner && ball.owner.attackDir === blueTeam.attackDir;
+}
+
+// プレス：ボール（の少し先）へ全力で寄せる
+function pressMove() {
+  const dx = ball.position.x + ball.velocity.x * 0.2 - controlled.position.x;
+  const dz = ball.position.z + ball.velocity.z * 0.2 - controlled.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 0.3) return STOP;
+  return { x: dx / dist, z: dz / dist };
+}
+
+// シュート：方向を倒していなければ、キーパーのいない側を自動で狙う。
+// 倒していれば、その向きに飛ばす（真上＝ゴールの中央、斜め＝隅のあたり、真横＝ポストの外。少しばらつく）。
+// 後ろへ倒していれば、その向きにそのまま蹴る
+function shoot(move) {
+  const len = Math.hypot(move.x, move.z);
+  if (len < 0.1) return controlled.tryKick(ball, aimAwayFromKeeper(redTeam.keeper));
+  const dir = blueTeam.attackDir;
+  if (move.x * dir < -0.3 * len) return controlled.shootToward(ball, move.x, move.z);
+  const goalX = dir * FIELD.length / 2;
+  const aimZ = move.z * PLAYER.shotAimWidth + (Math.random() * 2 - 1) * PLAYER.shotSpread;
+  return controlled.shootToward(ball, goalX - ball.position.x, aimZ - ball.position.z);
+}
+
 // パスの受け手になった選手は、スティックを倒していなければ自動でボールへ走る
 function autoReceive(move) {
   if (ball.passTarget !== controlled || Math.hypot(move.x, move.z) > 0.1) return move;
@@ -236,8 +263,12 @@ function step(dt) {
   if (match.phase === 'playing') {
     updateControl();
     const move = toFieldMove(getMove());
-    controlled.update(dt, autoReceive(move));
-    if (consumeKick()) controlled.tryKick(ball, aimAwayFromKeeper(redTeam.keeper));
+    // 守備中にパスボタンを押し続けるとプレス
+    const pressing = isPassHeld() && !blueHasBall();
+    for (const p of blueTeam.players) p.pressing = false;
+    controlled.pressing = pressing;
+    controlled.update(dt, pressing ? pressMove() : autoReceive(move));
+    if (consumeKick()) shoot(move);
     if (consumePass()) {
       const mate = choosePassTarget(controlled, blueTeam, move);
       if (mate) controlled.passTo(ball, mate);

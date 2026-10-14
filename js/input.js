@@ -1,7 +1,7 @@
 // キーボードとタッチ操作
 // 操作は「移動」「シュート」「パス」の3つだけ（ほかに一時停止）
-//   PC   ：矢印キー / WASD で移動、スペースでシュート、Z でパス、Esc で一時停止
-//   スマホ：画面の左半分に触れるとスティックが出る、右下のボタンでシュート・パス、右上のボタンで一時停止
+//   PC   ：矢印キー / WASD で移動、スペースでシュート、Z でパス（守備中は押し続けてプレス）、Esc で一時停止
+//   スマホ：画面の左半分に触れるとスティックが出る、右下のボタンでシュート・パス（守備中は押し続けてプレス）、右上のボタンで一時停止
 
 const KEYS = {
   up: ['ArrowUp', 'KeyW'],
@@ -54,6 +54,7 @@ const STICK_RADIUS = 0.11; // スティックが動く半径（画面の高さ�
 const DEAD_ZONE = 0.15;    // この割合より小さい指の動きは無視する
 
 const touch = { id: null, originX: 0, originY: 0, right: 0, forward: 0 };
+const heldButtons = new Set(); // 押し続けているタッチボタン（'pass' など）
 
 // タッチできる端末なら、画面にスティックとボタンを出す
 function enableTouch() {
@@ -120,10 +121,14 @@ function pressButton(button, name) {
   button.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     queued[name] = true;
+    heldButtons.add(name);
     button.classList.add('pressed');
   });
   for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
-    button.addEventListener(type, () => button.classList.remove('pressed'));
+    button.addEventListener(type, () => {
+      heldButtons.delete(name);
+      button.classList.remove('pressed');
+    });
   }
 }
 pressButton(kickButton, 'kick');
@@ -164,6 +169,11 @@ export const consumeKick = () => consume('kick');
 // パス
 export const consumePass = () => consume('pass');
 
+// パスボタンを押し続けているか（守備中はプレスになる）
+export function isPassHeld() {
+  return isDown('pass') || heldButtons.has('pass');
+}
+
 // 一時停止・再開
 export const consumePause = () => consume('pause');
 
@@ -171,5 +181,6 @@ export const consumePause = () => consume('pause');
 export function clearInput() {
   for (const name of Object.keys(queued)) queued[name] = false;
   pressed.clear();
+  heldButtons.clear();
   releaseStick();
 }
