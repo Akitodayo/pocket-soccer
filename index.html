@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ポケットサッカー</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Three.js を CDN から読み込む（ビルド作業なし） -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- 16:9 の画面枠。ウィンドウに合わせて拡大縮小する -->
+  <div id="game"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
