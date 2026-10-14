@@ -10,16 +10,23 @@ export const CPU = {
   kickoffWait: 1.5,       // 相手のキックオフのとき、動き出すまで待つ時間（秒）
   chaseLead: 0.25,        // 転がるボールを追うとき、何秒先の位置を目指すか
   keeperSpeedRate: 0.65,  // キーパーの速さ（あなたの選手を1としたとき）
-  keeperDiveSpeed: 8,     // シュートに飛びつくときの速さ
-  keeperReach: 1.3,       // キーパーの手が届く距離
+  keeperDiveSpeed: 7,     // シュートに飛びつくときの速さ
+  keeperReach: 1.2,       // キーパーの手が届く距離
   keeperCatchHeight: 2.3, // キーパーの手が届く高さ
   shotSpeed: 12,          // この速さより速いボールを「シュート」とみなす
-  saveChanceNear: 0.35,   // ゴールのすぐ近くから撃たれたシュートを止める確率（0〜1）
-  saveChanceFar: 0.85,    // saveFarDistance 以上離れたところからのシュートを止める確率（0〜1）
+  saveChanceNear: 0.3,    // ゴールのすぐ近くから撃たれたシュートを止める確率（0〜1）
+  saveChanceFar: 0.8,     // saveFarDistance 以上離れたところからのシュートを止める確率（0〜1）
   saveFarDistance: 12,    // この距離より遠いシュートは saveChanceFar で止める
-  keeperHoldTime: 0.7,    // キーパーがボールを持ってから蹴り出すまでの時間（秒）
-  clearSpeed: 15,         // キーパーの蹴り出しの速さ
-  clearLift: 7,           // キーパーの蹴り出しの浮き上がり
+  keeperHoldTime: 0.7,    // キーパーがボールを持ってから味方へパスするまでの最短の時間（秒）
+  keeperMaxHold: 2.5,     // 相手が近くにいても、この時間（秒）たったらパスする
+  keeperClearRange: 5,    // 相手がこの距離より近くにいる間は、パスを待つ
+  passLift: 8,            // キーパーのパスの浮き上がり（相手の頭を越える浮き球）
+  passHeight: 1.2,        // キーパーがパスを放す高さ
+  passTime: 1.3,          // パスが味方に届くまでのおおよその時間（秒）
+  passMinSpeed: 6,        // キーパーのパスの速さの下限
+  passMaxSpeed: 20,       // キーパーのパスの速さの上限
+  passLead: 0.4,          // 走っている味方の、何秒先の位置へパスするか
+  receiveDepth: 8,        // 味方キーパーがボールを持ったとき、自分のゴールからどれだけ前でパスを待つか
   aimSpread: 0.5,         // シュートの狙いのばらつき
 };
 
@@ -72,8 +79,12 @@ export function updateFieldCpu(dt, me, ball, opponentKeeper) {
     target = { x: goalX, z: me.position.z * 0.6 };
   } else {
     me.holdTime = 0;
-    if (ball.owner && ball.owner.keeper) {
-      // キーパーが持っているときは、中央付近で待つ
+    if (ball.owner && ball.owner.keeper && ball.owner.attackDir === me.attackDir) {
+      // 味方のキーパーが持っているときは、自分の陣地でパスを待つ
+      const ownLineX = -me.attackDir * FIELD.length / 2;
+      target = { x: ownLineX + me.attackDir * CPU.receiveDepth, z: ball.position.z * 0.3 };
+    } else if (ball.owner && ball.owner.keeper) {
+      // 相手のキーパーが持っているときは、中央付近で待つ
       target = { x: -me.attackDir * 2, z: ball.position.z * 0.3 };
     } else {
       // ボールの少し先を目指し、攻める向きの反対側から回り込む
@@ -86,8 +97,9 @@ export function updateFieldCpu(dt, me, ball, opponentKeeper) {
   me.update(dt, moveToward(me, target));
 }
 
-// キーパー：ゴール前の決まった範囲で、ボールに合わせて左右に動く。ボールを取ったら前へ蹴り出す
-export function updateKeeper(dt, keeper, ball) {
+// キーパー：ゴール前の決まった範囲で、ボールに合わせて左右に動く。
+// ボールを取ったら、opponent（相手）が離れるのを少し待ってから teammate（味方）へパスする
+export function updateKeeper(dt, keeper, ball, teammate, opponent) {
   const lineX = -keeper.attackDir * FIELD.length / 2;
   const out = keeper.attackDir;
   let target;
@@ -95,9 +107,9 @@ export function updateKeeper(dt, keeper, ball) {
   if (keeper.hasBall(ball)) {
     keeper.holdTime += dt;
     target = keeper.position;
-    if (keeper.holdTime > CPU.keeperHoldTime) {
-      keeper.kickToward(ball, out, (Math.random() - 0.5) * 0.8, CPU.clearSpeed, CPU.clearLift);
-    }
+    const opponentNear = keeper.distanceTo(opponent.position) < CPU.keeperClearRange;
+    const ready = keeper.holdTime > CPU.keeperHoldTime && (!opponentNear || keeper.holdTime > CPU.keeperMaxHold);
+    if (ready) passTo(keeper, ball, teammate);
   } else {
     keeper.holdTime = 0;
     const ballDepth = (ball.position.x - lineX) * out; // ボールが自分のゴールラインからどれだけ前にあるか
@@ -128,6 +140,19 @@ export function updateKeeper(dt, keeper, ball) {
     }
   }
   keeper.update(dt, moveToward(keeper, target));
+}
+
+// 味方の少し先（走っている向き）へ、距離に合わせた強さで浮き球のパスを出す
+function passTo(keeper, ball, teammate) {
+  const targetX = teammate.position.x + teammate.velocity.x * CPU.passLead;
+  const targetZ = teammate.position.z + teammate.velocity.z * CPU.passLead;
+  const dx = targetX - ball.position.x;
+  const dz = targetZ - ball.position.z;
+  const distance = Math.hypot(dx, dz);
+  const speed = Math.max(CPU.passMinSpeed, Math.min(CPU.passMaxSpeed, distance / CPU.passTime));
+  // 手から投げる高さで放す（すぐ近くの相手に足で取られないように）
+  ball.position.y = Math.max(ball.position.y, CPU.passHeight);
+  keeper.kickToward(ball, dx, dz, speed, CPU.passLift);
 }
 
 // シュートを止める確率。ゴールラインから近いところで撃たれたシュートほど止めにくい

@@ -10,7 +10,7 @@ const BALL = {
   groundBounce: 0.5,  // 地面で跳ねる強さ（0〜1）
   wallBounce: 0.7,    // 板で跳ね返る強さ（0〜1）
   netBounce: 0.05,    // ネットで跳ね返る強さ（0〜1）
-  goalFriction: 4,    // ゴールの中で転がるときの減速（ネットに絡んで止まる）
+  goalFriction: 4,    // ゴールの中での減速（ネットに絡んで止まる）
   rollFriction: 0.6,  // 転がるときの減速
   airDrag: 0.1,       // 空中での減速
 };
@@ -43,6 +43,7 @@ class Ball {
     this.velocity.set(0, 0, 0);
     this.owner = null;
     this.ownerTimer = 0;
+    this.prevX = 0;
   }
 
   // 地面と平行な方向の速さ
@@ -73,6 +74,7 @@ class Ball {
     const p = this.position;
     const v = this.velocity;
     this.ownerTimer += dt;
+    this.prevX = p.x; // 動く前の位置（ゴールの中にいたかの判定に使う）
 
     v.y -= BALL.gravity * dt;
     p.addScaledVector(v, dt);
@@ -88,7 +90,8 @@ class Ball {
 
     // 転がり・空中の減速
     const inGoal = Math.abs(p.x) > FIELD.length / 2;
-    const drag = !this.onGround ? BALL.airDrag : inGoal ? BALL.goalFriction : BALL.rollFriction;
+    // ゴールの中では、空中でもネットに勢いを吸われてすぐ止まる
+    const drag = inGoal ? BALL.goalFriction : !this.onGround ? BALL.airDrag : BALL.rollFriction;
     const slow = Math.exp(-drag * dt);
     v.x *= slow;
     v.z *= slow;
@@ -121,8 +124,11 @@ class Ball {
 
     if (Math.abs(p.x) <= halfL - r) return;
 
-    const inGoalMouth = Math.abs(p.z) < goalHalf - r && p.y < GOAL.height - r;
-    if (inGoalMouth) {
+    // 前のコマでボールの中心がゴールラインを越えていれば、もうゴールの中（口からしか入れないため）。
+    // そうでなければ、ゴールの口に入っているときだけ通す
+    const insideGoal = Math.abs(this.prevX) > halfL;
+    const inGoalMouth = Math.abs(p.z) <= goalHalf - r && p.y <= GOAL.height - r;
+    if (insideGoal || inGoalMouth) {
       // ゴールの中：奥・横・上のネットで止まる
       const back = halfL + GOAL.depth - r;
       bounce(p, v, 'x', -back, back, BALL.netBounce);

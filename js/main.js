@@ -186,8 +186,8 @@ function step(dt) {
     match.cpuWait = Math.max(0, match.cpuWait - dt);
     if (match.cpuWait > 0) red.update(dt, STOP);
     else updateFieldCpu(dt, red, ball, blueKeeper);
-    updateKeeper(dt, blueKeeper, ball);
-    updateKeeper(dt, redKeeper, ball);
+    updateKeeper(dt, blueKeeper, ball, blue, red);
+    updateKeeper(dt, redKeeper, ball, red, blue);
     separatePlayers(players);
 
     ball.update(dt);
