@@ -16,7 +16,18 @@
 </head>
 <body>
   <!-- 16:9 の画面枠。ウィンドウに合わせて拡大縮小する -->
-  <div id="game"></div>
+  <div id="game">
+    <!-- 得点と残り時間 -->
+    <div id="scoreboard">
+      <span class="team team-blue">青</span>
+      <span id="score-blue" class="score">0</span>
+      <span id="timer" class="timer">3:00</span>
+      <span id="score-red" class="score">0</span>
+      <span class="team team-red">赤</span>
+    </div>
+    <div id="goal-banner" class="banner" hidden>GOAL!</div>
+    <div id="message" class="message" hidden></div>
+  </div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

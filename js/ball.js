@@ -80,6 +80,13 @@ class Ball {
     this.roll(dt);
   }
 
+  // ボール全体がゴールラインを越えたら、そのゴールの向き（右なら 1、左なら -1）を返す。入っていなければ 0
+  // ゴールの口以外は板で跳ね返るので、ラインの外にあるボールは必ずゴールの中にある
+  goalSide() {
+    if (Math.abs(this.position.x) > FIELD.length / 2 + BALL_RADIUS) return Math.sign(this.position.x);
+    return 0;
+  }
+
   // 板とゴールネットで跳ね返る
   collideWalls() {
     const p = this.position;

@@ -15,6 +15,7 @@ export const PLAYER = {
   kickSpeed: 24,        // シュートの速さ（一定）
   kickLift: 4,          // シュートの浮き上がり
   kickCooldown: 0.4,    // 蹴った直後にボールを拾わない時間（秒）
+  kickoffDistance: 1.3, // キックオフのときにボールの後ろに立つ距離
 };
 
 export class Player {
@@ -33,9 +34,10 @@ export class Player {
     this.reset();
   }
 
-  // 最初の位置に戻す
-  reset() {
+  // キックオフの位置に戻す。kickingOff が true ならボールのすぐ後ろ、false なら自分の陣地の最初の位置
+  reset(kickingOff = false) {
     this.position.copy(this.home);
+    if (kickingOff) this.position.set(-this.attackDir * PLAYER.kickoffDistance, 0, 0);
     this.velocity.set(0, 0, 0);
     this.facing = this.attackDir > 0 ? Math.PI / 2 : -Math.PI / 2;
     this.mesh.rotation.y = this.facing;
